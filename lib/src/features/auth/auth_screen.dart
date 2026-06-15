@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,6 +21,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _phone = TextEditingController();
   final _email = TextEditingController();
   var _isRegistering = false;
+  String? _authError;
+  var _hideProviderError = false;
 
   @override
   void dispose() {
@@ -36,6 +39,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final displayedError = _authError ??
+        (!_hideProviderError && auth.hasError && auth.error != null
+            ? _authErrorMessage(auth.error!)
+            : null);
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -70,7 +77,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Padding(
-                            padding: const EdgeInsets.all(4.0), // Un pequeño espacio para que no toque los bordes
+                            padding: const EdgeInsets.all(4),
                             child: Image.asset(
                               isDark
                                   ? 'assets/images/logo-dark.png'
@@ -104,12 +111,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             controller: _firstName,
                             decoration: const InputDecoration(labelText: 'Nombre'),
                             validator: _required,
+                            onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: _lastName,
                             decoration: const InputDecoration(labelText: 'Apellido'),
                             validator: _required,
+                            onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
@@ -117,6 +126,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             decoration: const InputDecoration(labelText: 'Telefono'),
                             keyboardType: TextInputType.phone,
                             validator: _required,
+                            onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
@@ -124,6 +134,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             decoration: const InputDecoration(labelText: 'Correo'),
                             keyboardType: TextInputType.emailAddress,
                             validator: _required,
+                            onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                         ],
@@ -131,6 +142,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           controller: _username,
                           decoration: const InputDecoration(labelText: 'Usuario'),
                           validator: _required,
+                          onChanged: (_) => _clearAuthError(),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -138,6 +150,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           obscureText: true,
                           decoration: const InputDecoration(labelText: 'Contrasena'),
                           validator: _required,
+                          onChanged: (_) => _clearAuthError(),
                         ),
                         const SizedBox(height: 20),
                         FilledButton.icon(
@@ -151,26 +164,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           label: Text(_isRegistering ? 'Crear cuenta' : 'Iniciar sesion'),
                         ),
                         TextButton(
-                          onPressed: auth.isLoading
-                              ? null
-                              : () => setState(() => _isRegistering = !_isRegistering),
-                          child: Text(_isRegistering
-                              ? 'Ya tengo cuenta'
-                              : 'Crear una cuenta nueva',
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.72)
-                                    : AppColors.navy.withOpacity(0.68),
-                              )
+                          onPressed: auth.isLoading ? null : _toggleMode,
+                          child: Text(
+                            _isRegistering ? 'Ya tengo cuenta' : 'Crear una cuenta nueva',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.white.withOpacity(0.72)
+                                  : AppColors.navy.withOpacity(0.68),
                             ),
+                          ),
                         ),
-                        if (auth.hasError)
+                        if (displayedError != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 12),
-                            child: Text(
-                              'No se pudo autenticar. Revisa tus datos o el backend.',
-                              style: TextStyle(color: Theme.of(context).colorScheme.error),
-                            ),
+                            child: _AuthErrorBox(message: displayedError),
                           ),
                       ],
                     ),
@@ -189,9 +196,42 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     return null;
   }
 
+  void _toggleMode() {
+    setState(() {
+      _isRegistering = !_isRegistering;
+      _authError = null;
+      _hideProviderError = true;
+      _clearFields();
+    });
+    _formKey.currentState?.reset();
+  }
+
+  void _clearFields() {
+    _username.clear();
+    _password.clear();
+    _firstName.clear();
+    _lastName.clear();
+    _phone.clear();
+    _email.clear();
+  }
+
+  void _clearAuthError() {
+    if (_authError != null || !_hideProviderError) {
+      setState(() {
+        _authError = null;
+        _hideProviderError = true;
+      });
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _authError = null;
+      _hideProviderError = false;
+    });
     final controller = ref.read(authControllerProvider.notifier);
+
     if (_isRegistering) {
       await controller.signUp(
         username: _username.text.trim(),
@@ -204,5 +244,89 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     } else {
       await controller.signIn(_username.text.trim(), _password.text);
     }
+
+    if (!mounted) return;
+    final error = ref.read(authControllerProvider).error;
+    if (error != null) {
+      setState(() => _authError = _authErrorMessage(error));
+    }
+  }
+
+  String _authErrorMessage(Object error) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      final backendMessage = _backendMessage(data);
+      if (backendMessage != null && backendMessage.trim().isNotEmpty) {
+        return backendMessage;
+      }
+
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403) {
+        return 'Usuario o contrasena incorrectos.';
+      }
+      if (statusCode == 409) {
+        return 'Ya existe una cuenta con esos datos.';
+      }
+      if (statusCode != null && statusCode >= 500) {
+        return 'El servidor no pudo procesar la solicitud. Intenta nuevamente.';
+      }
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.sendTimeout) {
+        return 'La conexion esta tardando demasiado. Revisa tu red e intenta otra vez.';
+      }
+      if (error.type == DioExceptionType.connectionError) {
+        return 'No se pudo conectar con el servidor.';
+      }
+    }
+
+    return _isRegistering
+        ? 'No se pudo crear la cuenta. Revisa los datos e intenta nuevamente.'
+        : 'No se pudo iniciar sesion. Revisa tus datos e intenta nuevamente.';
+  }
+
+  String? _backendMessage(Object? data) {
+    if (data is Map) {
+      final message = data['message'] ?? data['error'];
+      if (message != null) return message.toString();
+      if (data.isNotEmpty) return data.values.first.toString();
+    }
+    if (data is String && data.trim().isNotEmpty) return data;
+    return null;
+  }
+}
+
+class _AuthErrorBox extends StatelessWidget {
+  const _AuthErrorBox({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.error;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

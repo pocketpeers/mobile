@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../core/config.dart';
 import 'models.dart';
@@ -29,6 +30,17 @@ class PocketPeersApi {
           }
           handler.next(options);
         },
+      ),
+    );
+    _dio.interceptors.add(
+      PrettyDioLogger(
+        requestHeader: true,
+        requestBody: true,
+        responseBody: true,
+        responseHeader: false,
+        error: true,
+        compact: true,
+        maxWidth: 90,
       ),
     );
   }
@@ -164,12 +176,11 @@ class PocketPeersApi {
   }
 
   Future<GroupMember> joinGroup({
-    required int groupId,
     required int userId,
     required String token,
   }) async {
     final response = await _dio.post<JsonMap>(
-      '/api/v1/groups/$groupId/join',
+      '/api/v1/groups/join',
       data: {'userId': userId, 'token': token},
     );
     return GroupMember.fromJson(response.data ?? {});
@@ -223,6 +234,38 @@ class PocketPeersApi {
     return Expense.fromJson(response.data ?? {});
   }
 
+  Future<Expense> createExpenseWithPayments({
+    required String name,
+    required double amount,
+    required int userId,
+    required int groupId,
+    required DateTime dueDate,
+    required List<SplitDraft> splits,
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/expenses/with-payments',
+      data: {
+        'name': name,
+        'amount': amount,
+        'userId': userId,
+        'groupId': groupId,
+        'dueDate': dueDate.toIso8601String().split('T').first,
+        'payments': [
+          for (final split in splits.where((item) => item.amount > 0))
+            {
+              'description': '$name - ${split.fullName}',
+              'amount': split.amount,
+              'userId': split.userId,
+            },
+        ],
+      },
+    );
+    final body = response.data ?? {};
+    return Expense.fromJson(
+      Map<String, Object?>.from((body['expense'] as Map?) ?? const {}),
+    );
+  }
+
   Future<Payment> createPayment({
     required String description,
     required double amount,
@@ -270,6 +313,10 @@ class PocketPeersApi {
       '/api/v1/payments/$paymentId/pay',
       data: {'amount': amount, 'photo': photo},
     );
+  }
+
+  Future<void> confirmPayment(int paymentId) async {
+    await _dio.post<JsonMap>('/api/v1/payments/$paymentId/confirm');
   }
 
   Future<ImageUpload> uploadImage(String filePath) async {

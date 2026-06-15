@@ -1,13 +1,17 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/remote_image.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../dashboard/dashboard_screen.dart';
+import 'join_group_dialog.dart';
 
 class GroupsScreen extends ConsumerStatefulWidget {
   const GroupsScreen({super.key});
@@ -32,10 +36,27 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
     final groups = ref.watch(groupsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Grupos')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/groups/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('Grupo'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'join-group',
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (context) => const JoinGroupDialog(),
+            ),
+            icon: const Icon(Icons.group_add_outlined),
+            label: const Text('Unirme'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'create-group',
+            onPressed: () => context.push('/groups/new'),
+            icon: const Icon(Icons.add),
+            label: const Text('Grupo'),
+          ),
+        ],
       ),
       body: groups.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -98,14 +119,10 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                           horizontal: 16,
                           vertical: 10,
                         ),
-                        leading: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: AppColors.blue.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.group_outlined, color: AppColors.blue),
+                        leading: RemoteAvatar(
+                          imageRef: group.groupPhoto,
+                          fallbackIcon: Icons.group_outlined,
+                          size: 44,
                         ),
                         title: Text(
                           group.name,
@@ -153,6 +170,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _description = TextEditingController();
+  String _groupPhoto = '';
   var _saving = false;
 
   @override
@@ -184,6 +202,24 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               decoration: const InputDecoration(labelText: 'Descripcion'),
               validator: _required,
             ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                RemoteAvatar(
+                  imageRef: _groupPhoto,
+                  fallbackIcon: Icons.group_outlined,
+                  size: 56,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : _pickGroupPhoto,
+                    icon: const Icon(Icons.image_outlined),
+                    label: const Text('Foto del grupo'),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: _saving ? null : _save,
@@ -206,6 +242,13 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     return null;
   }
 
+  Future<void> _pickGroupPhoto() async {
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (image == null) return;
+    final uploaded = await ref.read(apiProvider).uploadImage(image.path);
+    setState(() => _groupPhoto = uploaded.imageId);
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final session = ref.read(authControllerProvider).valueOrNull;
@@ -216,6 +259,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             name: _name.text.trim(),
             description: _description.text.trim(),
             adminId: session.id,
+            groupPhoto: _groupPhoto,
           );
       ref.invalidate(groupsProvider);
       if (mounted) context.pop();
@@ -262,7 +306,17 @@ class GroupDetailScreen extends ConsumerWidget {
             group.when(
               loading: () => const LinearProgressIndicator(),
               error: (error, stackTrace) => Text('No se pudo cargar el grupo: $error'),
-              data: (item) => Text(item.description),
+              data: (item) => Row(
+                children: [
+                  RemoteAvatar(
+                    imageRef: item.groupPhoto,
+                    fallbackIcon: Icons.group_outlined,
+                    size: 56,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(item.description)),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             summary.when(
@@ -290,7 +344,12 @@ class GroupDetailScreen extends ConsumerWidget {
                     for (final member in items)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.person_outline),
+                        leading: RemoteAvatar(
+                          imageRef: member.photo,
+                          fallbackIcon: Icons.person_outline,
+                          size: 40,
+                          borderRadius: 20,
+                        ),
                         title: Text(member.fullName),
                         subtitle: Text(member.role),
                         trailing: const Icon(Icons.chevron_right),
@@ -345,6 +404,20 @@ class GroupDetailScreen extends ConsumerWidget {
         title: const Text('Codigo de invitacion'),
         content: SelectableText(token.isEmpty ? 'Sin codigo disponible' : token),
         actions: [
+          TextButton.icon(
+            onPressed: token.isEmpty
+                ? null
+                : () async {
+                    await Clipboard.setData(ClipboardData(text: token));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Codigo copiado')),
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Copiar'),
+          ),
           TextButton(onPressed: () => context.pop(), child: const Text('Cerrar')),
         ],
       ),
@@ -403,10 +476,30 @@ class _LeaderboardList extends StatelessWidget {
         for (final entry in entries)
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(
-              backgroundColor:
-                  entry.currentUser ? AppColors.green.withOpacity(0.18) : AppColors.mist,
-              child: Text('${entry.position}'),
+            leading: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                RemoteAvatar(
+                  imageRef: entry.photo,
+                  fallbackIcon: Icons.person_outline,
+                  size: 44,
+                  borderRadius: 22,
+                  backgroundColor:
+                      entry.currentUser ? AppColors.green.withOpacity(0.18) : AppColors.mist,
+                  iconColor: entry.currentUser ? AppColors.green : AppColors.blue,
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.navy,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${entry.position}',
+                    style: const TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                ),
+              ],
             ),
             title: Row(
               children: [
@@ -484,7 +577,12 @@ class _PublicMemberProfileDialog extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  const CircleAvatar(child: Icon(Icons.person_outline)),
+                  RemoteAvatar(
+                    imageRef: item.photo,
+                    fallbackIcon: Icons.person_outline,
+                    size: 44,
+                    borderRadius: 22,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -618,8 +716,8 @@ class _ExpensePayments extends ConsumerWidget {
               contentPadding: const EdgeInsets.only(left: 16),
               leading: const Icon(Icons.arrow_forward, color: AppColors.blue),
               title: Text(payment.description),
-              subtitle: Text(payment.status),
-              trailing: Text(formatCurrency(payment.remaining)),
+              subtitle: Text(payment.confirmed ? payment.status : '${payment.status} - sin confirmar'),
+              trailing: Text(formatCurrency(payment.confirmed ? payment.remaining : payment.amount)),
               onTap: () => context.push('/payments/${payment.id}'),
             ),
         ],

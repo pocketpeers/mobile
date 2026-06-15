@@ -18,6 +18,11 @@ final _routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authControllerProvider);
   final onboarding = ref.watch(onboardingCompletedProvider);
   final isSignedIn = auth.valueOrNull != null;
+  final initialLocation = !_isMinSplashTimePassed
+      ? '/splash'
+      : isSignedIn
+          ? '/dashboard'
+          : '/auth';
 
   if (!_isMinSplashTimePassed) {
     Future.delayed(const Duration(seconds: 2), () {
@@ -28,19 +33,21 @@ final _routerProvider = Provider<GoRouter>((ref) {
   }
 
   return GoRouter(
-    initialLocation: '/splash',
+    initialLocation: initialLocation,
     redirect: (context, state) {
       final isSplashRoute = state.matchedLocation == '/splash';
       final isAuthRoute = state.matchedLocation == '/auth';
       final isOnboardingRoute = state.matchedLocation == '/onboarding';
 
-      if (!_isMinSplashTimePassed || auth.isLoading) {
+      if (!_isMinSplashTimePassed) {
         return isSplashRoute ? null : '/splash';
       }
 
-      if (auth.isLoading) return isSplashRoute ? null : '/splash';
+      if (auth.isLoading) {
+        return isAuthRoute ? null : '/auth';
+      }
       if (onboarding.isLoading && isSignedIn) {
-        return isSplashRoute ? null : '/splash';
+        return null;
       }
       if (!isSignedIn && !isAuthRoute) return '/auth';
       if (!isSignedIn && isSplashRoute) return '/auth';

@@ -18,6 +18,7 @@ List<SplitDraft> equalSplit({
       SplitDraft(
         userId: member.userId,
         fullName: member.fullName,
+        photo: member.photo,
         amount: double.parse(value.toStringAsFixed(2)),
       ),
     );
@@ -36,12 +37,13 @@ GroupSummary summarizeGroup({
   required List<Payment> payments,
 }) {
   final totalExpenses = expenses.fold<double>(0, (sum, item) => sum + item.amount);
-  final totalPaid = payments.fold<double>(0, (sum, item) => sum + item.amountPaid);
-  final totalPending = payments.fold<double>(0, (sum, item) => sum + item.remaining);
+  final totalPaid = payments.fold<double>(0, (sum, item) => sum + _confirmedPaid(item));
+  final totalPending = payments.fold<double>(0, (sum, item) => sum + _consideredRemaining(item));
   final namesByUser = {for (final member in members) member.userId: member.fullName};
   final debtByUser = <int, double>{};
   for (final payment in payments) {
-    debtByUser[payment.userId] = (debtByUser[payment.userId] ?? 0) + payment.remaining;
+    debtByUser[payment.userId] =
+        (debtByUser[payment.userId] ?? 0) + _consideredRemaining(payment);
   }
   final debts = debtByUser.entries
       .where((entry) => entry.value > 0)
@@ -59,8 +61,8 @@ GroupSummary summarizeGroup({
     totalExpenses: totalExpenses,
     totalPaid: totalPaid,
     totalPending: totalPending,
-    completedPayments: payments.where((item) => item.remaining <= 0).length,
-    pendingPayments: payments.where((item) => item.remaining > 0).length,
+    completedPayments: payments.where((item) => item.confirmed && item.remaining <= 0).length,
+    pendingPayments: payments.where((item) => !item.confirmed || item.remaining > 0).length,
     debts: debts,
   );
 }
@@ -71,11 +73,13 @@ DashboardSummary summarizeDashboard({
   required List<Payment> incomingPayments,
 }) {
   final totalExpenses = expenses.fold<double>(0, (sum, item) => sum + item.amount);
-  final totalPaid = outgoingPayments.fold<double>(0, (sum, item) => sum + item.amountPaid);
-  final incomingPending = incomingPayments.fold<double>(0, (sum, item) => sum + item.remaining);
-  final outgoingPending = outgoingPayments.fold<double>(0, (sum, item) => sum + item.remaining);
+  final totalPaid = outgoingPayments.fold<double>(0, (sum, item) => sum + _confirmedPaid(item));
+  final incomingPending =
+      incomingPayments.fold<double>(0, (sum, item) => sum + _consideredRemaining(item));
+  final outgoingPending =
+      outgoingPayments.fold<double>(0, (sum, item) => sum + _consideredRemaining(item));
   final totalPayments = outgoingPayments.length;
-  final paidPayments = outgoingPayments.where((item) => item.remaining <= 0).length;
+  final paidPayments = outgoingPayments.where((item) => item.confirmed && item.remaining <= 0).length;
   final score = totalPayments == 0 ? 100 : ((paidPayments / totalPayments) * 100).round();
 
   final monthFormatter = DateFormat('yyyy-MM');
@@ -99,4 +103,12 @@ DashboardSummary summarizeDashboard({
     monthlyExpenses: monthly,
     recentPayments: recent.take(8).toList(),
   );
+}
+
+double _confirmedPaid(Payment payment) {
+  return payment.confirmed ? payment.amountPaid : 0;
+}
+
+double _consideredRemaining(Payment payment) {
+  return payment.amount - _confirmedPaid(payment);
 }

@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/remote_image.dart';
 import '../../data/calculations.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
@@ -25,9 +26,17 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   final _name = TextEditingController();
   final _amount = TextEditingController();
   final _customAmounts = <int, TextEditingController>{};
+  final _selectedMemberIds = <int>{};
   var _splitMode = SplitMode.equal;
   var _dueDate = DateTime.now().add(const Duration(days: 7));
   var _saving = false;
+  var _selectionTouched = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() => ref.invalidate(groupMembersProvider(widget.groupId)));
+  }
 
   @override
   void dispose() {
@@ -92,12 +101,19 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             members.when(
               loading: () => const LinearProgressIndicator(),
               error: (error, stackTrace) => const Text('No se pudieron cargar integrantes'),
-              data: (items) => _SplitEditor(
-                members: items,
-                amount: _parsedAmount,
-                mode: _splitMode,
-                controllers: _customAmounts,
-              ),
+              data: (items) {
+                final selectedIds = _selectedIdsFor(items);
+                return _SplitEditor(
+                  members: items,
+                  selectedMemberIds: selectedIds,
+                  amount: _parsedAmount,
+                  mode: _splitMode,
+                  controllers: _customAmounts,
+                  onSelectAll: () => _selectAllMembers(items),
+                  onUnselectAll: _unselectAllMembers,
+                  onMemberSelectionChanged: _setMemberSelected,
+                );
+              },
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
@@ -144,13 +160,22 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
     final amount = _parsedAmount;
+    final selectedIds = _selectedIdsFor(members);
+    final selectedMembers = members.where((member) => selectedIds.contains(member.userId)).toList();
+    if (selectedMembers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un integrante')),
+      );
+      return;
+    }
     final splits = _splitMode == SplitMode.equal
-        ? equalSplit(amount: amount, members: members)
-        : members
+        ? equalSplit(amount: amount, members: selectedMembers)
+        : selectedMembers
             .map(
               (member) => SplitDraft(
                 userId: member.userId,
                 fullName: member.fullName,
+                photo: member.photo,
                 amount: double.tryParse(
                       (_customAmounts[member.userId]?.text ?? '').replaceAll(',', '.'),
                     ) ??
@@ -168,26 +193,52 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
 
     setState(() => _saving = true);
     try {
-      final expense = await ref.read(apiProvider).createExpense(
+      await ref.read(apiProvider).createExpenseWithPayments(
             name: _name.text.trim(),
             amount: amount,
             userId: session.id,
             groupId: widget.groupId,
             dueDate: _dueDate,
+            splits: splits,
           );
-      for (final split in splits.where((item) => item.amount > 0)) {
-        await ref.read(apiProvider).createPayment(
-              description: '${_name.text.trim()} - ${split.fullName}',
-              amount: split.amount,
-              userId: split.userId,
-              expenseId: expense.id,
-            );
-      }
       invalidateGroup(ref, widget.groupId);
       if (mounted) context.pop();
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Set<int> _selectedIdsFor(List<GroupMember> members) {
+    final availableIds = members.map((member) => member.userId).toSet();
+    if (!_selectionTouched) return availableIds;
+    return _selectedMemberIds.where(availableIds.contains).toSet();
+  }
+
+  void _selectAllMembers(List<GroupMember> members) {
+    setState(() {
+      _selectionTouched = true;
+      _selectedMemberIds
+        ..clear()
+        ..addAll(members.map((member) => member.userId));
+    });
+  }
+
+  void _unselectAllMembers() {
+    setState(() {
+      _selectionTouched = true;
+      _selectedMemberIds.clear();
+    });
+  }
+
+  void _setMemberSelected(int userId, bool selected) {
+    setState(() {
+      _selectionTouched = true;
+      if (selected) {
+        _selectedMemberIds.add(userId);
+      } else {
+        _selectedMemberIds.remove(userId);
+      }
+    });
   }
 }
 
@@ -196,20 +247,30 @@ enum SplitMode { equal, custom }
 class _SplitEditor extends StatelessWidget {
   const _SplitEditor({
     required this.members,
+    required this.selectedMemberIds,
     required this.amount,
     required this.mode,
     required this.controllers,
+    required this.onSelectAll,
+    required this.onUnselectAll,
+    required this.onMemberSelectionChanged,
   });
 
   final List<GroupMember> members;
+  final Set<int> selectedMemberIds;
   final double amount;
   final SplitMode mode;
   final Map<int, TextEditingController> controllers;
+  final VoidCallback onSelectAll;
+  final VoidCallback onUnselectAll;
+  final void Function(int userId, bool selected) onMemberSelectionChanged;
 
   @override
   Widget build(BuildContext context) {
     if (members.isEmpty) return const Text('No hay integrantes para dividir el gasto');
-    final equal = equalSplit(amount: amount, members: members);
+    final selectedMembers =
+        members.where((member) => selectedMemberIds.contains(member.userId)).toList();
+    final equal = equalSplit(amount: amount, members: selectedMembers);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -218,28 +279,118 @@ class _SplitEditor extends StatelessWidget {
           children: [
             Text('Division del gasto', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${selectedMemberIds.length} de ${members.length} integrantes',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                TextButton(
+                  onPressed: onSelectAll,
+                  child: const Text('Seleccionar todos'),
+                ),
+                TextButton(
+                  onPressed: onUnselectAll,
+                  child: const Text('Quitar todos'),
+                ),
+              ],
+            ),
+            if (selectedMembers.isEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('Selecciona al menos un integrante para crear pagos'),
+            ],
+            const SizedBox(height: 8),
             for (final member in members)
-              mode == SplitMode.equal
-                  ? ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(member.fullName),
-                      trailing: Text(formatCurrency(
-                        equal.firstWhere((item) => item.userId == member.userId).amount,
-                      )),
-                    )
-                  : Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: TextFormField(
-                        controller: controllers.putIfAbsent(
-                          member.userId,
-                          () => TextEditingController(),
-                        ),
-                        decoration: InputDecoration(labelText: member.fullName),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
+              _SplitMemberRow(
+                member: member,
+                selected: selectedMemberIds.contains(member.userId),
+                mode: mode,
+                equalAmount: _equalAmountFor(equal, member.userId),
+                controller: controllers.putIfAbsent(
+                  member.userId,
+                  () => TextEditingController(),
+                ),
+                onChanged: (selected) => onMemberSelectionChanged(member.userId, selected),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  double _equalAmountFor(List<SplitDraft> equal, int userId) {
+    for (final item in equal) {
+      if (item.userId == userId) return item.amount;
+    }
+    return 0;
+  }
+}
+
+class _SplitMemberRow extends StatelessWidget {
+  const _SplitMemberRow({
+    required this.member,
+    required this.selected,
+    required this.mode,
+    required this.equalAmount,
+    required this.controller,
+    required this.onChanged,
+  });
+
+  final GroupMember member;
+  final bool selected;
+  final SplitMode mode;
+  final double equalAmount;
+  final TextEditingController controller;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (mode == SplitMode.equal) {
+      return CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        value: selected,
+        onChanged: (value) => onChanged(value ?? false),
+        secondary: RemoteAvatar(
+          imageRef: member.photo,
+          fallbackIcon: Icons.person_outline,
+          size: 36,
+          borderRadius: 18,
+        ),
+        title: Text(member.fullName),
+        subtitle: selected ? Text(formatCurrency(equalAmount)) : const Text('No participa'),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Checkbox(
+            value: selected,
+            onChanged: (value) => onChanged(value ?? false),
+          ),
+          Expanded(
+            child: TextFormField(
+              controller: controller,
+              enabled: selected,
+              decoration: InputDecoration(
+                labelText: member.fullName,
+                prefixIcon: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: RemoteAvatar(
+                    imageRef: member.photo,
+                    fallbackIcon: Icons.person_outline,
+                    size: 32,
+                    borderRadius: 16,
+                  ),
+                ),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -259,6 +410,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   final _picker = ImagePicker();
   XFile? _evidence;
   var _saving = false;
+  var _confirming = false;
 
   @override
   void dispose() {
@@ -269,6 +421,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final payment = ref.watch(paymentProvider(widget.paymentId));
+    final session = ref.watch(authControllerProvider).valueOrNull;
     return Scaffold(
       appBar: AppBar(title: const Text('Detalle de transaccion')),
       body: payment.when(
@@ -277,45 +430,93 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
           title: 'No se pudo cargar el pago',
           onRetry: () => ref.invalidate(paymentProvider(widget.paymentId)),
         ),
-        data: (item) => ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(item.description, style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 8),
-                    _StatusPill(status: item.status),
-                    const SizedBox(height: 16),
-                    _PaymentRows(payment: item),
-                    Text('Hash blockchain: pendiente de backend'),
-                  ],
+        data: (item) {
+          final expense = ref.watch(expenseProvider(item.expenseId));
+          final expenseOwnerId = expense.valueOrNull?.userId;
+          final isCompletedAndConfirmed = item.confirmed && item.remaining <= 0;
+          final canRegisterPayment = session?.id == item.userId &&
+              !isCompletedAndConfirmed &&
+              item.remaining > 0;
+          final canConfirmPayment = session?.id == expenseOwnerId &&
+              !item.confirmed &&
+              item.status != 'PENDING';
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.description, style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _StatusPill(status: item.status),
+                          _StatusPill(status: item.confirmed ? 'CONFIRMADO' : 'SIN CONFIRMAR'),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _PaymentRows(payment: item),
+                      if (expense.isLoading) ...[
+                        const SizedBox(height: 8),
+                        const LinearProgressIndicator(),
+                      ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _amount,
-              decoration: const InputDecoration(labelText: 'Abono'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _pickEvidence,
-              icon: const Icon(Icons.image_outlined),
-              label: Text(_evidence == null ? 'Cargar evidencia' : _evidence!.name),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _saving ? null : _registerPayment,
-              icon: const Icon(Icons.payments_outlined),
-              label: const Text('Registrar abono'),
-            ),
-          ],
-        ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _amount,
+                enabled: canRegisterPayment,
+                decoration: InputDecoration(
+                  labelText: 'Abono',
+                  helperText: isCompletedAndConfirmed
+                      ? 'Este pago ya fue confirmado por completo'
+                      : canRegisterPayment
+                          ? null
+                          : item.confirmed
+                              ? 'El abono anterior fue confirmado; puedes registrar otro abono parcial'
+                              : 'Solo el deudor puede registrar abonos pendientes',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: canRegisterPayment ? _pickEvidence : null,
+                icon: const Icon(Icons.image_outlined),
+                label: Text(_evidence == null ? 'Cargar evidencia' : _evidence!.name),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: canRegisterPayment && !_saving ? _registerPayment : null,
+                icon: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.payments_outlined),
+                label: const Text('Registrar abono'),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: canConfirmPayment && !_confirming ? () => _confirmPayment(item) : null,
+                icon: _confirming
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.verified_outlined),
+                label: const Text('Confirmar recepcion'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -339,7 +540,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
             amount: value,
             photo: photo,
           );
-      ref.invalidate(paymentProvider(widget.paymentId));
+      _refreshPaymentState(widget.paymentId);
       ref.invalidate(dashboardSummaryProvider);
       ref.invalidate(myReputationProvider);
       ref.invalidate(myBadgesProvider);
@@ -353,6 +554,35 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _confirmPayment(Payment payment) async {
+    setState(() => _confirming = true);
+    try {
+      await ref.read(apiProvider).confirmPayment(payment.id);
+      _refreshPaymentState(payment.id, payment: payment);
+      ref.invalidate(dashboardSummaryProvider);
+      ref.invalidate(myReputationProvider);
+      ref.invalidate(myBadgesProvider);
+      ref.invalidate(myReputationHistoryProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pago confirmado')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _confirming = false);
+    }
+  }
+
+  void _refreshPaymentState(int paymentId, {Payment? payment}) {
+    final currentPayment = payment ?? ref.read(paymentProvider(paymentId)).valueOrNull;
+    ref.invalidate(paymentProvider(paymentId));
+    if (currentPayment == null) return;
+    ref.invalidate(expenseProvider(currentPayment.expenseId));
+    ref.invalidate(expensePaymentsProvider(currentPayment.expenseId));
+    final expense = ref.read(expenseProvider(currentPayment.expenseId)).valueOrNull;
+    if (expense != null) invalidateGroup(ref, expense.groupId);
   }
 }
 
@@ -402,7 +632,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           child: TextField(
                             controller: _search,
                             decoration: const InputDecoration(
-                              labelText: 'Nombre exacto del gasto',
+                              labelText: 'Nombre del gasto',
                               prefixIcon: Icon(Icons.search),
                             ),
                             onSubmitted: (_) => _searchExpenses(),
@@ -511,8 +741,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           child: Icon(Icons.swap_horiz_outlined),
                         ),
                         title: Text(payment.description),
-                        subtitle: Text(payment.status),
-                        trailing: Text(formatCurrency(payment.amountPaid)),
+                        subtitle:
+                            Text(payment.confirmed ? payment.status : '${payment.status} - sin confirmar'),
+                        trailing: Text(formatCurrency(payment.confirmed ? payment.amountPaid : 0)),
                         onTap: () => context.push('/payments/${payment.id}'),
                       ),
                   ],

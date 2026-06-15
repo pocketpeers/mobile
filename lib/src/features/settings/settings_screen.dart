@@ -5,8 +5,10 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/remote_image.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
+import '../groups/join_group_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -40,14 +42,10 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: AppColors.blue.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.person_outline, color: AppColors.blue),
+                        RemoteAvatar(
+                          imageRef: item.photo,
+                          fallbackIcon: Icons.person_outline,
+                          size: 48,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -110,10 +108,10 @@ class SettingsScreen extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.group_add_outlined, color: AppColors.blue),
                   title: const Text('Unirme a un grupo'),
-                  subtitle: const Text('Ingresa ID de grupo y codigo de invitacion'),
+                  subtitle: const Text('Ingresa el codigo de invitacion'),
                   onTap: () => showDialog<void>(
                     context: context,
-                    builder: (context) => const _JoinGroupDialog(),
+                    builder: (context) => const JoinGroupDialog(),
                   ),
                 ),
                 const Divider(height: 1),
@@ -204,10 +202,11 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor: AppColors.blue.withOpacity(0.12),
-                  child: const Icon(Icons.person_outline, color: AppColors.blue),
+                RemoteAvatar(
+                  imageRef: _photo,
+                  fallbackIcon: Icons.person_outline,
+                  size: 64,
+                  borderRadius: 32,
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
@@ -418,78 +417,5 @@ class _BadgesCard extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _JoinGroupDialog extends ConsumerStatefulWidget {
-  const _JoinGroupDialog();
-
-  @override
-  ConsumerState<_JoinGroupDialog> createState() => _JoinGroupDialogState();
-}
-
-class _JoinGroupDialogState extends ConsumerState<_JoinGroupDialog> {
-  final _groupId = TextEditingController();
-  final _token = TextEditingController();
-  var _saving = false;
-
-  @override
-  void dispose() {
-    _groupId.dispose();
-    _token.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Unirme a grupo'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _groupId,
-            decoration: const InputDecoration(labelText: 'ID del grupo'),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _token,
-            decoration: const InputDecoration(labelText: 'Codigo'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => context.pop(), child: const Text('Cancelar')),
-        FilledButton(
-          onPressed: _saving ? null : _join,
-          child: const Text('Unirme'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _join() async {
-    final session = ref.read(authControllerProvider).valueOrNull;
-    final groupId = int.tryParse(_groupId.text.trim());
-    if (session == null || groupId == null || _token.text.trim().isEmpty) return;
-    setState(() => _saving = true);
-    try {
-      await ref.read(apiProvider).joinGroup(
-            groupId: groupId,
-            userId: session.id,
-            token: _token.text.trim(),
-          );
-      ref.invalidate(groupsProvider);
-      if (mounted) context.pop();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo unir al grupo')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
   }
 }

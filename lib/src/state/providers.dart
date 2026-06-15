@@ -34,20 +34,29 @@ class AuthController extends AsyncNotifier<AuthSession?> {
     required String phoneNumber,
     required String email,
   }) async {
-    await _api.signUp(
-      username: username,
-      password: password,
-      firstName: firstName,
-      lastName: lastName,
-      phoneNumber: phoneNumber,
-      email: email,
-    );
-    await signIn(username, password);
+    state = const AsyncLoading();
+    state = await AsyncValue.guard<AuthSession?>(() async {
+      await _api.signUp(
+        username: username,
+        password: password,
+        firstName: firstName,
+        lastName: lastName,
+        phoneNumber: phoneNumber,
+        email: email,
+      );
+      return _api.signIn(username, password);
+    });
   }
 
   Future<void> signOut() async {
     await _api.signOut();
     state = const AsyncData(null);
+  }
+
+  void clearAuthError() {
+    if (state.hasError) {
+      state = const AsyncData(null);
+    }
   }
 
   Future<void> completeOnboarding() async {
@@ -77,6 +86,10 @@ final groupMembersProvider = FutureProvider.family<List<GroupMember>, int>((ref,
 
 final groupExpensesProvider = FutureProvider.family<List<Expense>, int>((ref, groupId) {
   return ref.read(apiProvider).getExpensesByGroup(groupId);
+});
+
+final expenseProvider = FutureProvider.family<Expense, int>((ref, expenseId) {
+  return ref.read(apiProvider).getExpense(expenseId);
 });
 
 final expensePaymentsProvider = FutureProvider.family<List<Payment>, int>((ref, expenseId) {

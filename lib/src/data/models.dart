@@ -97,6 +97,7 @@ class GroupMember {
     required this.groupId,
     required this.userId,
     required this.fullName,
+    required this.photo,
     required this.role,
     this.joinedAt,
   });
@@ -104,6 +105,7 @@ class GroupMember {
   final int groupId;
   final int userId;
   final String fullName;
+  final String photo;
   final String role;
   final DateTime? joinedAt;
 
@@ -111,6 +113,7 @@ class GroupMember {
         groupId: _toInt(json['groupId']),
         userId: _toInt(json['userId']),
         fullName: json['fullName']?.toString() ?? 'Usuario ${json['userId']}',
+        photo: json['photo']?.toString() ?? '',
         role: json['role']?.toString() ?? 'MEMBER',
         joinedAt: _toDate(json['joinedAt']),
       );
@@ -165,6 +168,7 @@ class Payment {
     required this.amount,
     required this.amountPaid,
     required this.status,
+    required this.confirmed,
     required this.userId,
     required this.expenseId,
   });
@@ -174,6 +178,7 @@ class Payment {
   final double amount;
   final double amountPaid;
   final String status;
+  final bool confirmed;
   final int userId;
   final int expenseId;
 
@@ -185,6 +190,7 @@ class Payment {
         amount: _toDouble(json['amount']),
         amountPaid: _toDouble(json['amountPaid']),
         status: json['status']?.toString() ?? 'PENDING',
+        confirmed: json['confirmed'] == true,
         userId: _toInt(json['userId']),
         expenseId: _toInt(json['expenseId']),
       );
@@ -394,11 +400,13 @@ class SplitDraft {
   const SplitDraft({
     required this.userId,
     required this.fullName,
+    required this.photo,
     required this.amount,
   });
 
   final int userId;
   final String fullName;
+  final String photo;
   final double amount;
 }
 
