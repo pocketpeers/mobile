@@ -5,7 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'core/app_theme.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
+import 'features/groups/group_screens.dart';
+import 'features/operations/operation_screens.dart';
 import 'features/onboarding/onboarding_screen.dart';
+import 'features/settings/settings_screen.dart';
 import 'features/splash/splash_screen.dart';
 import 'state/providers.dart';
 
@@ -72,6 +75,44 @@ final _routerProvider = Provider<GoRouter>((ref) {
             path: '/dashboard',
             builder: (context, state) => const DashboardScreen(),
           ),
+          GoRoute(
+            path: '/groups',
+            builder: (context, state) => const GroupsScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                builder: (context, state) => const CreateGroupScreen(),
+              ),
+              GoRoute(
+                path: ':groupId',
+                builder: (context, state) => GroupDetailScreen(
+                  groupId: int.parse(state.pathParameters['groupId']!),
+                ),
+                routes: [
+                  GoRoute(
+                    path: 'expenses/new',
+                    builder: (context, state) => CreateExpenseScreen(
+                      groupId: int.parse(state.pathParameters['groupId']!),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/reports',
+            builder: (context, state) => const ReportsScreen(),
+          ),
+          GoRoute(
+            path: '/payments/:paymentId',
+            builder: (context, state) => PaymentDetailScreen(
+              paymentId: int.parse(state.pathParameters['paymentId']!),
+            ),
+          ),
+          GoRoute(
+            path: '/settings',
+            builder: (context, state) => const SettingsScreen(),
+          ),
         ],
       ),
     ],
@@ -102,6 +143,9 @@ class AppShell extends StatelessWidget {
 
   static const _tabs = [
     _TabDestination('/dashboard', Icons.dashboard_outlined, 'Home'),
+    _TabDestination('/groups', Icons.group_outlined, 'Grupos'),
+    _TabDestination('/reports', Icons.pie_chart_outline, 'Reportes'),
+    _TabDestination('/settings', Icons.settings_outlined, 'Ajustes'),
   ];
 
   @override
