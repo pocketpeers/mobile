@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
 import '../../core/remote_image.dart';
+import '../../core/validators.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../groups/join_group_dialog.dart';
@@ -72,7 +74,8 @@ class SettingsScreen extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: () => showDialog<void>(
                           context: context,
-                          builder: (context) => _EditProfileDialog(profile: item),
+                          builder: (context) =>
+                              _EditProfileDialog(profile: item),
                         ),
                         icon: const Icon(Icons.edit_outlined),
                         label: const Text('Editar perfil'),
@@ -106,7 +109,8 @@ class SettingsScreen extends ConsumerWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.group_add_outlined, color: AppColors.blue),
+                  leading: const Icon(Icons.group_add_outlined,
+                      color: AppColors.blue),
                   title: const Text('Unirme a un grupo'),
                   subtitle: const Text('Ingresa el codigo de invitacion'),
                   onTap: () => showDialog<void>(
@@ -118,7 +122,8 @@ class SettingsScreen extends ConsumerWidget {
                 SwitchListTile(
                   secondary: const Icon(Icons.notifications_active_outlined),
                   title: const Text('Recordatorios de pago'),
-                  subtitle: const Text('Se calculan localmente desde las fechas limite'),
+                  subtitle: const Text(
+                      'Se calculan localmente desde las fechas limite'),
                   value: remindersEnabled,
                   onChanged: (value) async {
                     ref.read(remindersEnabledProvider.notifier).state = value;
@@ -129,7 +134,8 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.help_outline, color: AppColors.blue),
+                  leading:
+                      const Icon(Icons.help_outline, color: AppColors.blue),
                   title: const Text('Ayuda'),
                   subtitle: const Text('Ver nuevamente el onboarding'),
                   onTap: () => context.push('/onboarding'),
@@ -175,7 +181,8 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
     super.initState();
     final parts = widget.profile.fullName.trim().split(RegExp(r'\s+'));
     _firstName = TextEditingController(text: parts.isEmpty ? '' : parts.first);
-    _lastName = TextEditingController(text: parts.length <= 1 ? '' : parts.sublist(1).join(' '));
+    _lastName = TextEditingController(
+        text: parts.length <= 1 ? '' : parts.sublist(1).join(' '));
     _phone = TextEditingController(text: widget.profile.phoneNumber);
     _email = TextEditingController(text: widget.profile.email);
     _photo = widget.profile.photo;
@@ -218,25 +225,31 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
                 TextFormField(
                   controller: _firstName,
                   decoration: const InputDecoration(labelText: 'Nombre'),
-                  validator: _required,
+                  validator: nameField,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _lastName,
                   decoration: const InputDecoration(labelText: 'Apellido'),
-                  validator: _required,
+                  validator: nameField,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _phone,
                   decoration: const InputDecoration(labelText: 'Telefono'),
-                  validator: _required,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(9),
+                  ],
+                  validator: phoneField,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _email,
                   decoration: const InputDecoration(labelText: 'Email'),
-                  validator: _required,
+                  keyboardType: TextInputType.emailAddress,
+                  validator: emailField,
                 ),
               ],
             ),
@@ -244,7 +257,9 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: _saving ? null : () => context.pop(), child: const Text('Cancelar')),
+        TextButton(
+            onPressed: _saving ? null : () => context.pop(),
+            child: const Text('Cancelar')),
         FilledButton.icon(
           onPressed: _saving ? null : _save,
           icon: _saving
@@ -257,11 +272,6 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
         ),
       ],
     );
-  }
-
-  String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) return 'Campo requerido';
-    return null;
   }
 
   Future<void> _pickPhoto() async {
@@ -311,7 +321,8 @@ class _ReputationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.workspace_premium_outlined, color: AppColors.green),
+                const Icon(Icons.workspace_premium_outlined,
+                    color: AppColors.green),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text('Score de reputacion',
@@ -333,7 +344,8 @@ class _ReputationCard extends StatelessWidget {
                     )),
             Text(reputation.levelDescription),
             if (reputation.pointsToNextLevel > 0)
-              Text('Faltan ${reputation.pointsToNextLevel} puntos para el siguiente nivel'),
+              Text(
+                  'Faltan ${reputation.pointsToNextLevel} puntos para el siguiente nivel'),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -384,15 +396,20 @@ class _BadgesCard extends StatelessWidget {
                             : Colors.grey.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: badge.unlocked ? AppColors.green : Colors.grey.shade300,
+                          color: badge.unlocked
+                              ? AppColors.green
+                              : Colors.grey.shade300,
                         ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Icon(
-                            badge.unlocked ? Icons.verified_outlined : Icons.lock_outline,
-                            color: badge.unlocked ? AppColors.green : Colors.grey,
+                            badge.unlocked
+                                ? Icons.verified_outlined
+                                : Icons.lock_outline,
+                            color:
+                                badge.unlocked ? AppColors.green : Colors.grey,
                           ),
                           const SizedBox(height: 8),
                           Text(

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
 import '../../core/remote_image.dart';
+import '../../core/validators.dart';
 import '../../data/calculations.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
@@ -75,7 +76,7 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Descripcion'),
-              validator: _required,
+              validator: _expenseName,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -83,7 +84,7 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
               decoration: const InputDecoration(labelText: 'Monto'),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              validator: _positiveAmount,
+              validator: positiveAmountField,
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
@@ -163,17 +164,12 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     );
   }
 
-  double get _parsedAmount =>
-      double.tryParse(_amount.text.replaceAll(',', '.')) ?? 0;
+  double get _parsedAmount => parseAmount(_amount.text);
 
-  String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) return 'Campo requerido';
-    return null;
-  }
-
-  String? _positiveAmount(String? value) {
-    final amount = double.tryParse((value ?? '').replaceAll(',', '.')) ?? 0;
-    if (amount <= 0) return 'Ingresa un monto mayor a cero';
+  String? _expenseName(String? value) {
+    final required = requiredField(value);
+    if (required != null) return required;
+    if (value!.trim().length < 3) return 'Ingresa al menos 3 caracteres';
     return null;
   }
 
@@ -271,14 +267,19 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
                 userId: member.userId,
                 fullName: member.fullName,
                 photo: member.photo,
-                amount: double.tryParse(
-                      (_customAmounts[member.userId]?.text ?? '')
-                          .replaceAll(',', '.'),
-                    ) ??
-                    0,
+                amount: parseAmount(_customAmounts[member.userId]?.text ?? ''),
               ),
             )
             .toList();
+
+    if (splits.any((split) => split.amount <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Cada integrante seleccionado debe tener un monto mayor a cero')),
+      );
+      return;
+    }
 
     if (!customSplitMatches(amount, splits.map((item) => item.amount))) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -609,6 +610,7 @@ class _SplitMemberRow extends StatelessWidget {
               ),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              validator: selected ? positiveAmountField : null,
             ),
           ),
         ],
@@ -694,6 +696,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                         const SizedBox(height: 8),
                         const LinearProgressIndicator(),
                       ],
+                      Text('Hash blockchain: pendiente de backend'),
                     ],
                   ),
                 ),
@@ -777,8 +780,21 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   }
 
   Future<void> _registerPayment() async {
-    final value = double.tryParse(_amount.text.replaceAll(',', '.')) ?? 0;
-    if (value <= 0) return;
+    final value = parseAmount(_amount.text);
+    if (value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ingresa un monto mayor a cero')),
+      );
+      return;
+    }
+    final payment = ref.read(paymentProvider(widget.paymentId)).valueOrNull;
+    if (payment != null && value > payment.remaining) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('El abono no puede superar el monto pendiente')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       var photo = '';

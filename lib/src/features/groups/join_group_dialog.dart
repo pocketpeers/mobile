@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/validators.dart';
 import '../../state/providers.dart';
 
 class JoinGroupDialog extends ConsumerStatefulWidget {
@@ -12,6 +13,7 @@ class JoinGroupDialog extends ConsumerStatefulWidget {
 }
 
 class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
+  final _formKey = GlobalKey<FormState>();
   final _token = TextEditingController();
   var _saving = false;
 
@@ -25,12 +27,18 @@ class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Unirme a grupo'),
-      content: TextField(
-        controller: _token,
-        decoration: const InputDecoration(labelText: 'Codigo de invitacion'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _token,
+          decoration: const InputDecoration(labelText: 'Codigo de invitacion'),
+          validator: _invitationToken,
+        ),
       ),
       actions: [
-        TextButton(onPressed: _saving ? null : () => context.pop(), child: const Text('Cancelar')),
+        TextButton(
+            onPressed: _saving ? null : () => context.pop(),
+            child: const Text('Cancelar')),
         FilledButton(
           onPressed: _saving ? null : _join,
           child: const Text('Unirme'),
@@ -40,6 +48,7 @@ class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
   }
 
   Future<void> _join() async {
+    if (!_formKey.currentState!.validate()) return;
     final session = ref.read(authControllerProvider).valueOrNull;
     final token = _token.text.trim();
     if (session == null || token.isEmpty) return;
@@ -61,5 +70,12 @@ class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  String? _invitationToken(String? value) {
+    final required = requiredField(value);
+    if (required != null) return required;
+    if (value!.trim().length < 6) return 'Ingresa un codigo valido';
+    return null;
   }
 }

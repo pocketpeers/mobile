@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/validators.dart';
 import '../../state/providers.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
@@ -72,7 +74,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           width: 64,
                           height: 64,
                           decoration: BoxDecoration(
-                            color: (isDark ? AppColors.lightGreen : AppColors.green)
+                            color: (isDark
+                                    ? AppColors.lightGreen
+                                    : AppColors.green)
                                 .withOpacity(0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -99,57 +103,69 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           _isRegistering
                               ? 'Crea tu cuenta para organizar gastos compartidos.'
                               : 'Ingresa para ver tus grupos, pagos y balances.',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.72)
-                                    : AppColors.navy.withOpacity(0.68),
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: isDark
+                                        ? Colors.white.withOpacity(0.72)
+                                        : AppColors.navy.withOpacity(0.68),
+                                  ),
                         ),
                         const SizedBox(height: 24),
                         if (_isRegistering) ...[
                           TextFormField(
                             controller: _firstName,
-                            decoration: const InputDecoration(labelText: 'Nombre'),
-                            validator: _required,
+                            decoration:
+                                const InputDecoration(labelText: 'Nombre'),
+                            validator: nameField,
                             onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: _lastName,
-                            decoration: const InputDecoration(labelText: 'Apellido'),
-                            validator: _required,
+                            decoration:
+                                const InputDecoration(labelText: 'Apellido'),
+                            validator: nameField,
                             onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: _phone,
-                            decoration: const InputDecoration(labelText: 'Telefono'),
+                            decoration:
+                                const InputDecoration(labelText: 'Telefono'),
                             keyboardType: TextInputType.phone,
-                            validator: _required,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(9),
+                            ],
+                            validator: phoneField,
                             onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: _email,
-                            decoration: const InputDecoration(labelText: 'Correo'),
+                            decoration:
+                                const InputDecoration(labelText: 'Correo'),
                             keyboardType: TextInputType.emailAddress,
-                            validator: _required,
+                            validator: emailField,
                             onChanged: (_) => _clearAuthError(),
                           ),
                           const SizedBox(height: 12),
                         ],
                         TextFormField(
                           controller: _username,
-                          decoration: const InputDecoration(labelText: 'Usuario'),
-                          validator: _required,
+                          decoration:
+                              const InputDecoration(labelText: 'Usuario'),
+                          validator: usernameField,
                           onChanged: (_) => _clearAuthError(),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _password,
                           obscureText: true,
-                          decoration: const InputDecoration(labelText: 'Contrasena'),
-                          validator: _required,
+                          decoration:
+                              const InputDecoration(labelText: 'Contraseña'),
+                          validator:
+                              _isRegistering ? passwordField : requiredField,
                           onChanged: (_) => _clearAuthError(),
                         ),
                         const SizedBox(height: 20),
@@ -158,15 +174,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           icon: auth.isLoading
                               ? const SizedBox.square(
                                   dimension: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )
-                              : Icon(_isRegistering ? Icons.person_add_alt : Icons.login),
-                          label: Text(_isRegistering ? 'Crear cuenta' : 'Iniciar sesion'),
+                              : Icon(_isRegistering
+                                  ? Icons.person_add_alt
+                                  : Icons.login),
+                          label: Text(_isRegistering
+                              ? 'Crear cuenta'
+                              : 'Iniciar sesion'),
                         ),
                         TextButton(
                           onPressed: auth.isLoading ? null : _toggleMode,
                           child: Text(
-                            _isRegistering ? 'Ya tengo cuenta' : 'Crear una cuenta nueva',
+                            _isRegistering
+                                ? 'Ya tengo cuenta'
+                                : 'Crear una cuenta nueva',
                             style: TextStyle(
                               color: isDark
                                   ? Colors.white.withOpacity(0.72)
@@ -189,11 +212,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         ),
       ),
     );
-  }
-
-  String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) return 'Campo requerido';
-    return null;
   }
 
   void _toggleMode() {
@@ -262,7 +280,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
       final statusCode = error.response?.statusCode;
       if (statusCode == 401 || statusCode == 403) {
-        return 'Usuario o contrasena incorrectos.';
+        return 'Usuario o contraseña incorrectos.';
       }
       if (statusCode == 409) {
         return 'Ya existe una cuenta con esos datos.';

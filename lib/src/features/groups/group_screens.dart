@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
 import '../../core/remote_image.dart';
+import '../../core/validators.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../dashboard/dashboard_screen.dart';
@@ -66,7 +67,8 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
         ),
         data: (items) {
           if (items.isEmpty) {
-            return const Center(child: Text('Crea tu primer grupo para empezar'));
+            return const Center(
+                child: Text('Crea tu primer grupo para empezar'));
           }
           final visibleItems = _results ?? items;
           return RefreshIndicator(
@@ -129,7 +131,8 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         subtitle: Text(group.description),
-                        trailing: const Icon(Icons.chevron_right, color: AppColors.green),
+                        trailing: const Icon(Icons.chevron_right,
+                            color: AppColors.green),
                         onTap: () => context.push('/groups/${group.id}'),
                       ),
                     ),
@@ -192,7 +195,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Nombre'),
-              validator: _required,
+              validator: nameField,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -200,7 +203,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               minLines: 3,
               maxLines: 5,
               decoration: const InputDecoration(labelText: 'Descripcion'),
-              validator: _required,
+              validator: _groupDescription,
             ),
             const SizedBox(height: 16),
             Row(
@@ -237,8 +240,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     );
   }
 
-  String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) return 'Campo requerido';
+  String? _groupDescription(String? value) {
+    final required = requiredField(value);
+    if (required != null) return required;
+    if (value!.trim().length < 5) return 'Ingresa al menos 5 caracteres';
     return null;
   }
 
@@ -309,7 +314,8 @@ class GroupDetailScreen extends ConsumerWidget {
           children: [
             group.when(
               loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) => Text('No se pudo cargar el grupo: $error'),
+              error: (error, stackTrace) =>
+                  Text('No se pudo cargar el grupo: $error'),
               data: (item) => Row(
                 children: [
                   RemoteAvatar(
@@ -325,7 +331,8 @@ class GroupDetailScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             summary.when(
               loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) => Text('No se pudo calcular el resumen: $error'),
+              error: (error, stackTrace) =>
+                  Text('No se pudo calcular el resumen: $error'),
               data: (item) => _GroupSummaryCard(summary: item),
             ),
             const SizedBox(height: 16),
@@ -333,8 +340,10 @@ class GroupDetailScreen extends ConsumerWidget {
               title: 'Ranking',
               child: leaderboard.when(
                 loading: () => const LinearProgressIndicator(),
-                error: (error, stackTrace) => const Text('No se pudo cargar el ranking'),
-                data: (items) => _LeaderboardList(groupId: groupId, entries: items),
+                error: (error, stackTrace) =>
+                    const Text('No se pudo cargar el ranking'),
+                data: (items) =>
+                    _LeaderboardList(groupId: groupId, entries: items),
               ),
             ),
             const SizedBox(height: 16),
@@ -342,7 +351,8 @@ class GroupDetailScreen extends ConsumerWidget {
               title: 'Integrantes',
               child: members.when(
                 loading: () => const LinearProgressIndicator(),
-                error: (error, stackTrace) => Text('No se pudieron cargar integrantes'),
+                error: (error, stackTrace) =>
+                    Text('No se pudieron cargar integrantes'),
                 data: (items) => Column(
                   children: [
                     for (final member in items)
@@ -374,16 +384,20 @@ class GroupDetailScreen extends ConsumerWidget {
               title: 'Gastos',
               child: expenses.when(
                 loading: () => const LinearProgressIndicator(),
-                error: (error, stackTrace) => Text('No se pudieron cargar gastos'),
+                error: (error, stackTrace) =>
+                    Text('No se pudieron cargar gastos'),
                 data: (items) => items.isEmpty
-                    ? const ListTile(contentPadding: EdgeInsets.zero, title: Text('Sin gastos'))
+                    ? const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('Sin gastos'))
                     : Column(
                         children: [
                           for (final expense in items)
                             ExpansionTile(
                               tilePadding: EdgeInsets.zero,
                               title: Text(expense.name),
-                              subtitle: Text('Vence ${formatDate(expense.dueDate)}'),
+                              subtitle:
+                                  Text('Vence ${formatDate(expense.dueDate)}'),
                               trailing: Text(formatCurrency(expense.amount)),
                               children: [
                                 _ExpensePayments(expenseId: expense.id),
@@ -406,7 +420,8 @@ class GroupDetailScreen extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Codigo de invitacion'),
-        content: SelectableText(token.isEmpty ? 'Sin codigo disponible' : token),
+        content:
+            SelectableText(token.isEmpty ? 'Sin codigo disponible' : token),
         actions: [
           TextButton.icon(
             onPressed: token.isEmpty
@@ -422,7 +437,8 @@ class GroupDetailScreen extends ConsumerWidget {
             icon: const Icon(Icons.copy_outlined),
             label: const Text('Copiar'),
           ),
-          TextButton(onPressed: () => context.pop(), child: const Text('Cerrar')),
+          TextButton(
+              onPressed: () => context.pop(), child: const Text('Cerrar')),
         ],
       ),
     );
@@ -461,9 +477,11 @@ class _LeaderboardList extends StatelessWidget {
                     ),
                     child: Column(
                       children: [
-                        Icon(Icons.emoji_events_outlined, color: _podiumColor(entry.position)),
+                        Icon(Icons.emoji_events_outlined,
+                            color: _podiumColor(entry.position)),
                         Text('#${entry.position}',
-                            style: const TextStyle(fontWeight: FontWeight.w900)),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w900)),
                         Text(
                           entry.fullName,
                           maxLines: 1,
@@ -488,12 +506,15 @@ class _LeaderboardList extends StatelessWidget {
                   fallbackIcon: Icons.person_outline,
                   size: 44,
                   borderRadius: 22,
-                  backgroundColor:
-                      entry.currentUser ? AppColors.green.withOpacity(0.18) : AppColors.mist,
-                  iconColor: entry.currentUser ? AppColors.green : AppColors.blue,
+                  backgroundColor: entry.currentUser
+                      ? AppColors.green.withOpacity(0.18)
+                      : AppColors.mist,
+                  iconColor:
+                      entry.currentUser ? AppColors.green : AppColors.blue,
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppColors.navy,
                     borderRadius: BorderRadius.circular(8),
@@ -560,21 +581,24 @@ class _LeaderboardList extends StatelessWidget {
 }
 
 class _PublicMemberProfileDialog extends ConsumerWidget {
-  const _PublicMemberProfileDialog({required this.groupId, required this.memberId});
+  const _PublicMemberProfileDialog(
+      {required this.groupId, required this.memberId});
 
   final int groupId;
   final int memberId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(publicMemberProfileProvider((groupId: groupId, memberId: memberId)));
+    final profile = ref.watch(
+        publicMemberProfileProvider((groupId: groupId, memberId: memberId)));
     return AlertDialog(
       title: const Text('Perfil publico'),
       content: SizedBox(
         width: 420,
         child: profile.when(
           loading: () => const LinearProgressIndicator(),
-          error: (error, stackTrace) => const Text('No se pudo cargar el perfil'),
+          error: (error, stackTrace) =>
+              const Text('No se pudo cargar el perfil'),
           data: (item) => Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -594,7 +618,8 @@ class _PublicMemberProfileDialog extends ConsumerWidget {
                       children: [
                         Text(item.fullName,
                             style: Theme.of(context).textTheme.titleMedium),
-                        Text('${item.reputation.level} - ${item.reputation.score}/100'),
+                        Text(
+                            '${item.reputation.level} - ${item.reputation.score}/100'),
                       ],
                     ),
                   ),
@@ -603,9 +628,11 @@ class _PublicMemberProfileDialog extends ConsumerWidget {
               const SizedBox(height: 12),
               Text(item.reputation.levelDescription),
               const SizedBox(height: 12),
-              Text('Pagos completados en grupo: ${item.completedPaymentsInGroup}'),
+              Text(
+                  'Pagos completados en grupo: ${item.completedPaymentsInGroup}'),
               const SizedBox(height: 12),
-              Text('Badges publicos', style: Theme.of(context).textTheme.titleSmall),
+              Text('Badges publicos',
+                  style: Theme.of(context).textTheme.titleSmall),
               if (item.badges.isEmpty)
                 const Text('Sin badges desbloqueados')
               else
@@ -649,9 +676,13 @@ class _GroupSummaryCard extends StatelessWidget {
             childAspectRatio: 1.35,
             crossAxisSpacing: 8,
             children: [
-              MetricCard(label: 'Total', value: formatCurrency(summary.totalExpenses)),
-              MetricCard(label: 'Pagado', value: formatCurrency(summary.totalPaid)),
-              MetricCard(label: 'Pendiente', value: formatCurrency(summary.totalPending)),
+              MetricCard(
+                  label: 'Total', value: formatCurrency(summary.totalExpenses)),
+              MetricCard(
+                  label: 'Pagado', value: formatCurrency(summary.totalPaid)),
+              MetricCard(
+                  label: 'Pendiente',
+                  value: formatCurrency(summary.totalPending)),
             ],
           ),
           const SizedBox(height: 16),
@@ -690,7 +721,8 @@ class _GroupSummaryCard extends StatelessWidget {
                   color: AppColors.green.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.payments_outlined, color: AppColors.green),
+                child:
+                    const Icon(Icons.payments_outlined, color: AppColors.green),
               ),
               title: Text(debt.name),
               subtitle: const Text('Debe al grupo'),
@@ -712,7 +744,8 @@ class _ExpensePayments extends ConsumerWidget {
     final payments = ref.watch(expensePaymentsProvider(expenseId));
     return payments.when(
       loading: () => const LinearProgressIndicator(),
-      error: (error, stackTrace) => const ListTile(title: Text('No se cargaron pagos')),
+      error: (error, stackTrace) =>
+          const ListTile(title: Text('No se cargaron pagos')),
       data: (items) => Column(
         children: [
           for (final payment in items)
@@ -720,8 +753,11 @@ class _ExpensePayments extends ConsumerWidget {
               contentPadding: const EdgeInsets.only(left: 16),
               leading: const Icon(Icons.arrow_forward, color: AppColors.blue),
               title: Text(payment.description),
-              subtitle: Text(payment.confirmed ? payment.status : '${payment.status} - sin confirmar'),
-              trailing: Text(formatCurrency(payment.confirmed ? payment.remaining : payment.amount)),
+              subtitle: Text(payment.confirmed
+                  ? payment.status
+                  : '${payment.status} - sin confirmar'),
+              trailing: Text(formatCurrency(
+                  payment.confirmed ? payment.remaining : payment.amount)),
               onTap: () => context.push('/payments/${payment.id}'),
             ),
         ],
