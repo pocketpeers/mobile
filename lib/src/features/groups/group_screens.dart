@@ -281,6 +281,8 @@ class GroupDetailScreen extends ConsumerWidget {
     final expenses = ref.watch(groupExpensesProvider(groupId));
     final summary = ref.watch(groupSummaryProvider(groupId));
     final leaderboard = ref.watch(groupLeaderboardProvider(groupId));
+    final session = ref.watch(authControllerProvider).valueOrNull;
+    final isAdmin = group.valueOrNull?.adminId == session?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -293,11 +295,13 @@ class GroupDetailScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/groups/$groupId/expenses/new'),
-        icon: const Icon(Icons.add_card_outlined),
-        label: const Text('Gasto'),
-      ),
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push('/groups/$groupId/expenses/new'),
+              icon: const Icon(Icons.add_card_outlined),
+              label: const Text('Gasto'),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: () async => invalidateGroup(ref, groupId),
         child: ListView(

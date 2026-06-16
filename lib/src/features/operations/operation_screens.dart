@@ -18,7 +18,8 @@ class CreateExpenseScreen extends ConsumerStatefulWidget {
   final int groupId;
 
   @override
-  ConsumerState<CreateExpenseScreen> createState() => _CreateExpenseScreenState();
+  ConsumerState<CreateExpenseScreen> createState() =>
+      _CreateExpenseScreenState();
 }
 
 class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
@@ -27,15 +28,20 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   final _amount = TextEditingController();
   final _customAmounts = <int, TextEditingController>{};
   final _selectedMemberIds = <int>{};
+  final _receiptPicker = ImagePicker();
   var _splitMode = SplitMode.equal;
   var _dueDate = DateTime.now().add(const Duration(days: 7));
   var _saving = false;
+  var _scanningReceipt = false;
   var _selectionTouched = false;
+  ReceiptOcr? _ocrReceipt;
+  String _receiptImageId = '';
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.invalidate(groupMembersProvider(widget.groupId)));
+    Future.microtask(
+        () => ref.invalidate(groupMembersProvider(widget.groupId)));
   }
 
   @override
@@ -51,9 +57,17 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   @override
   Widget build(BuildContext context) {
     final members = ref.watch(groupMembersProvider(widget.groupId));
-    return Scaffold(
-      appBar: AppBar(title: const Text('Nuevo gasto')),
-      body: Form(
+    final group = ref.watch(groupProvider(widget.groupId));
+    final session = ref.watch(authControllerProvider).valueOrNull;
+    final isAdmin = group.valueOrNull?.adminId == session?.id;
+    final Widget body;
+    if (group.isLoading) {
+      body = const Center(child: CircularProgressIndicator());
+    } else if (!isAdmin) {
+      body =
+          const Center(child: Text('Solo el administrador puede crear gastos'));
+    } else {
+      body = Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -67,7 +81,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             TextFormField(
               controller: _amount,
               decoration: const InputDecoration(labelText: 'Monto'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               validator: _positiveAmount,
               onChanged: (_) => setState(() {}),
             ),
@@ -79,6 +94,14 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
               subtitle: Text(inputDateFormatter.format(_dueDate)),
               trailing: const Icon(Icons.edit_calendar_outlined),
               onTap: _pickDate,
+            ),
+            const SizedBox(height: 12),
+            _ReceiptOcrCard(
+              receiptImageId: _receiptImageId,
+              receipt: _ocrReceipt,
+              scanning: _scanningReceipt,
+              onScan: _scanReceipt,
+              onClear: _clearReceiptScan,
             ),
             const SizedBox(height: 12),
             SegmentedButton<SplitMode>(
@@ -95,12 +118,14 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
                 ),
               ],
               selected: {_splitMode},
-              onSelectionChanged: (value) => setState(() => _splitMode = value.first),
+              onSelectionChanged: (value) =>
+                  setState(() => _splitMode = value.first),
             ),
             const SizedBox(height: 16),
             members.when(
               loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) => const Text('No se pudieron cargar integrantes'),
+              error: (error, stackTrace) =>
+                  const Text('No se pudieron cargar integrantes'),
               data: (items) {
                 final selectedIds = _selectedIdsFor(items);
                 return _SplitEditor(
@@ -117,7 +142,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: _saving ? null : () => _save(members.valueOrNull ?? const []),
+              onPressed:
+                  _saving ? null : () => _save(members.valueOrNull ?? const []),
               icon: _saving
                   ? const SizedBox.square(
                       dimension: 18,
@@ -128,11 +154,17 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Nuevo gasto')),
+      body: body,
     );
   }
 
-  double get _parsedAmount => double.tryParse(_amount.text.replaceAll(',', '.')) ?? 0;
+  double get _parsedAmount =>
+      double.tryParse(_amount.text.replaceAll(',', '.')) ?? 0;
 
   String? _required(String? value) {
     if (value == null || value.trim().isEmpty) return 'Campo requerido';
@@ -155,13 +187,76 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     if (picked != null) setState(() => _dueDate = picked);
   }
 
+  Future<void> _scanReceipt() async {
+    final image = await _receiptPicker.pickImage(source: ImageSource.gallery);
+    if (image == null) return;
+    setState(() => _scanningReceipt = true);
+    var uploadedImageId = '';
+    try {
+      final uploaded = await ref.read(apiProvider).uploadImage(image.path);
+      uploadedImageId = uploaded.imageId;
+      if (mounted) {
+        setState(() => _receiptImageId = uploadedImageId);
+      }
+      final receipt =
+          await ref.read(apiProvider).ocrFromImage(uploaded.imageId);
+      if (!mounted) return;
+      setState(() {
+        _receiptImageId = uploadedImageId;
+        _ocrReceipt = receipt;
+        if (receipt.name.trim().isNotEmpty) {
+          _name.text = receipt.name.trim();
+        }
+        if (receipt.amount > 0) {
+          _amount.text = receipt.amount.toStringAsFixed(2);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Datos detectados por OCR')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _receiptImageId = uploadedImageId;
+        _ocrReceipt = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            uploadedImageId.isEmpty
+                ? 'No se pudo cargar el recibo'
+                : 'Recibo cargado, pero no se pudo leer con OCR',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _scanningReceipt = false);
+    }
+  }
+
+  void _clearReceiptScan() {
+    setState(() {
+      _receiptImageId = '';
+      _ocrReceipt = null;
+    });
+  }
+
   Future<void> _save(List<GroupMember> members) async {
     if (!_formKey.currentState!.validate() || members.isEmpty) return;
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
+    final group = ref.read(groupProvider(widget.groupId)).valueOrNull;
+    if (group?.adminId != session.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Solo el administrador puede crear gastos')),
+      );
+      return;
+    }
     final amount = _parsedAmount;
     final selectedIds = _selectedIdsFor(members);
-    final selectedMembers = members.where((member) => selectedIds.contains(member.userId)).toList();
+    final selectedMembers =
+        members.where((member) => selectedIds.contains(member.userId)).toList();
     if (selectedMembers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona al menos un integrante')),
@@ -177,7 +272,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
                 fullName: member.fullName,
                 photo: member.photo,
                 amount: double.tryParse(
-                      (_customAmounts[member.userId]?.text ?? '').replaceAll(',', '.'),
+                      (_customAmounts[member.userId]?.text ?? '')
+                          .replaceAll(',', '.'),
                     ) ??
                     0,
               ),
@@ -186,14 +282,15 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
 
     if (!customSplitMatches(amount, splits.map((item) => item.amount))) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La suma de divisiones debe coincidir con el gasto')),
+        const SnackBar(
+            content: Text('La suma de divisiones debe coincidir con el gasto')),
       );
       return;
     }
 
     setState(() => _saving = true);
     try {
-      await ref.read(apiProvider).createExpenseWithPayments(
+      final expense = await ref.read(apiProvider).createExpenseWithPayments(
             name: _name.text.trim(),
             amount: amount,
             userId: session.id,
@@ -201,10 +298,39 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             dueDate: _dueDate,
             splits: splits,
           );
+      await _attachReceiptToExpense(expense, amount);
       invalidateGroup(ref, widget.groupId);
       if (mounted) context.pop();
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _attachReceiptToExpense(
+      Expense expense, double expenseAmount) async {
+    if (_receiptImageId.isEmpty) return;
+    final receipt = _ocrReceipt;
+    final receiptAmount =
+        receipt != null && receipt.amount > 0 ? receipt.amount : expenseAmount;
+    if (receiptAmount > expenseAmount) return;
+    try {
+      await ref.read(apiProvider).createExpenseReceipt(
+            expenseId: expense.id,
+            name: (receipt?.name.trim().isNotEmpty ?? false)
+                ? receipt!.name.trim()
+                : expense.name,
+            amount: receiptAmount,
+            issueDate: receipt?.issueDate ?? DateTime.now(),
+            receiptNumber: receipt?.receiptNumber ?? '',
+            imagePath: _receiptImageId,
+          );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+                Text('El gasto se creo, pero no se pudo adjuntar el recibo')),
+      );
     }
   }
 
@@ -244,6 +370,93 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
 
 enum SplitMode { equal, custom }
 
+class _ReceiptOcrCard extends StatelessWidget {
+  const _ReceiptOcrCard({
+    required this.receiptImageId,
+    required this.receipt,
+    required this.scanning,
+    required this.onScan,
+    required this.onClear,
+  });
+
+  final String receiptImageId;
+  final ReceiptOcr? receipt;
+  final bool scanning;
+  final VoidCallback onScan;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasReceipt = receiptImageId.isNotEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                RemoteAvatar(
+                  imageRef: receiptImageId,
+                  fallbackIcon: Icons.receipt_long_outlined,
+                  size: 52,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('OCR de recibo',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      Text(
+                        hasReceipt
+                            ? 'Imagen cargada para este gasto'
+                            : 'Carga una imagen para completar datos automaticamente',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                if (hasReceipt)
+                  IconButton(
+                    onPressed: scanning ? null : onClear,
+                    icon: const Icon(Icons.close),
+                  ),
+              ],
+            ),
+            if (receipt != null) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (receipt!.name.isNotEmpty)
+                    Chip(label: Text(receipt!.name)),
+                  if (receipt!.amount > 0)
+                    Chip(label: Text(formatCurrency(receipt!.amount))),
+                  if (receipt!.issueDate != null)
+                    Chip(label: Text(formatDate(receipt!.issueDate))),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: scanning ? null : onScan,
+              icon: scanning
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.document_scanner_outlined),
+              label: Text(scanning ? 'Leyendo recibo' : 'Escanear recibo'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SplitEditor extends StatelessWidget {
   const _SplitEditor({
     required this.members,
@@ -267,9 +480,12 @@ class _SplitEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (members.isEmpty) return const Text('No hay integrantes para dividir el gasto');
-    final selectedMembers =
-        members.where((member) => selectedMemberIds.contains(member.userId)).toList();
+    if (members.isEmpty) {
+      return const Text('No hay integrantes para dividir el gasto');
+    }
+    final selectedMembers = members
+        .where((member) => selectedMemberIds.contains(member.userId))
+        .toList();
     final equal = equalSplit(amount: amount, members: selectedMembers);
     return Card(
       child: Padding(
@@ -277,7 +493,8 @@ class _SplitEditor extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Division del gasto', style: Theme.of(context).textTheme.titleMedium),
+            Text('Division del gasto',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -312,7 +529,8 @@ class _SplitEditor extends StatelessWidget {
                   member.userId,
                   () => TextEditingController(),
                 ),
-                onChanged: (selected) => onMemberSelectionChanged(member.userId, selected),
+                onChanged: (selected) =>
+                    onMemberSelectionChanged(member.userId, selected),
               ),
           ],
         ),
@@ -359,7 +577,9 @@ class _SplitMemberRow extends StatelessWidget {
           borderRadius: 18,
         ),
         title: Text(member.fullName),
-        subtitle: selected ? Text(formatCurrency(equalAmount)) : const Text('No participa'),
+        subtitle: selected
+            ? Text(formatCurrency(equalAmount))
+            : const Text('No participa'),
       );
     }
 
@@ -387,7 +607,8 @@ class _SplitMemberRow extends StatelessWidget {
                   ),
                 ),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
             ),
           ),
         ],
@@ -402,7 +623,8 @@ class PaymentDetailScreen extends ConsumerStatefulWidget {
   final int paymentId;
 
   @override
-  ConsumerState<PaymentDetailScreen> createState() => _PaymentDetailScreenState();
+  ConsumerState<PaymentDetailScreen> createState() =>
+      _PaymentDetailScreenState();
 }
 
 class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
@@ -440,6 +662,8 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
           final canConfirmPayment = session?.id == expenseOwnerId &&
               !item.confirmed &&
               item.status != 'PENDING';
+          final canViewEvidence =
+              session?.id == expenseOwnerId && item.evidencePhotos.isNotEmpty;
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -450,14 +674,18 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item.description, style: Theme.of(context).textTheme.titleLarge),
+                      Text(item.description,
+                          style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
                           _StatusPill(status: item.status),
-                          _StatusPill(status: item.confirmed ? 'CONFIRMADO' : 'SIN CONFIRMAR'),
+                          _StatusPill(
+                              status: item.confirmed
+                                  ? 'CONFIRMADO'
+                                  : 'SIN CONFIRMAR'),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -470,6 +698,23 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                   ),
                 ),
               ),
+              if (canViewEvidence) ...[
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Evidencia',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 12),
+                        _PaymentEvidenceGrid(imageRefs: item.evidencePhotos),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               TextField(
                 controller: _amount,
@@ -484,17 +729,20 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                               ? 'El abono anterior fue confirmado; puedes registrar otro abono parcial'
                               : 'Solo el deudor puede registrar abonos pendientes',
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: canRegisterPayment ? _pickEvidence : null,
                 icon: const Icon(Icons.image_outlined),
-                label: Text(_evidence == null ? 'Cargar evidencia' : _evidence!.name),
+                label: Text(
+                    _evidence == null ? 'Cargar evidencia' : _evidence!.name),
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: canRegisterPayment && !_saving ? _registerPayment : null,
+                onPressed:
+                    canRegisterPayment && !_saving ? _registerPayment : null,
                 icon: _saving
                     ? const SizedBox.square(
                         dimension: 18,
@@ -505,7 +753,9 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
               ),
               const SizedBox(height: 12),
               FilledButton.tonalIcon(
-                onPressed: canConfirmPayment && !_confirming ? () => _confirmPayment(item) : null,
+                onPressed: canConfirmPayment && !_confirming
+                    ? () => _confirmPayment(item)
+                    : null,
                 icon: _confirming
                     ? const SizedBox.square(
                         dimension: 18,
@@ -533,7 +783,8 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     try {
       var photo = '';
       if (_evidence != null) {
-        photo = (await ref.read(apiProvider).uploadImage(_evidence!.path)).imageId;
+        photo =
+            (await ref.read(apiProvider).uploadImage(_evidence!.path)).imageId;
       }
       await ref.read(apiProvider).makePayment(
             paymentId: widget.paymentId,
@@ -576,12 +827,14 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   }
 
   void _refreshPaymentState(int paymentId, {Payment? payment}) {
-    final currentPayment = payment ?? ref.read(paymentProvider(paymentId)).valueOrNull;
+    final currentPayment =
+        payment ?? ref.read(paymentProvider(paymentId)).valueOrNull;
     ref.invalidate(paymentProvider(paymentId));
     if (currentPayment == null) return;
     ref.invalidate(expenseProvider(currentPayment.expenseId));
     ref.invalidate(expensePaymentsProvider(currentPayment.expenseId));
-    final expense = ref.read(expenseProvider(currentPayment.expenseId)).valueOrNull;
+    final expense =
+        ref.read(expenseProvider(currentPayment.expenseId)).valueOrNull;
     if (expense != null) invalidateGroup(ref, expense.groupId);
   }
 }
@@ -624,7 +877,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Buscar gasto', style: Theme.of(context).textTheme.titleMedium),
+                    Text('Buscar gasto',
+                        style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 12),
                     Row(
                       children: [
@@ -644,7 +898,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           icon: _searching
                               ? const SizedBox.square(
                                   dimension: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.search),
                         ),
@@ -661,14 +916,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     if (_results != null) ...[
                       const SizedBox(height: 12),
                       if (_results!.isEmpty)
-                        const Text('No se encontraron resultados para la busqueda')
+                        const Text(
+                            'No se encontraron resultados para la busqueda')
                       else
                         for (final expense in _results!)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
                             leading: const Icon(Icons.receipt_long_outlined),
                             title: Text(expense.name),
-                            subtitle: Text('Vence ${formatDate(expense.dueDate)}'),
+                            subtitle:
+                                Text('Vence ${formatDate(expense.dueDate)}'),
                             trailing: Text(formatCurrency(expense.amount)),
                           ),
                     ],
@@ -683,9 +940,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Informe detallado', style: Theme.of(context).textTheme.titleMedium),
+                    Text('Informe detallado',
+                        style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 12),
-                    Text('Gasto total: ${formatCurrency(summary.totalExpenses)}'),
+                    Text(
+                        'Gasto total: ${formatCurrency(summary.totalExpenses)}'),
                     Text('Pagado: ${formatCurrency(summary.totalPaid)}'),
                     Text('Pendiente: ${formatCurrency(summary.totalPending)}'),
                   ],
@@ -699,7 +958,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Distribucion', style: Theme.of(context).textTheme.titleMedium),
+                    Text('Distribucion',
+                        style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 220,
@@ -731,7 +991,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Transacciones', style: Theme.of(context).textTheme.titleMedium),
+                    Text('Transacciones',
+                        style: Theme.of(context).textTheme.titleMedium),
                     for (final payment in summary.recentPayments)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -741,9 +1002,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           child: Icon(Icons.swap_horiz_outlined),
                         ),
                         title: Text(payment.description),
-                        subtitle:
-                            Text(payment.confirmed ? payment.status : '${payment.status} - sin confirmar'),
-                        trailing: Text(formatCurrency(payment.confirmed ? payment.amountPaid : 0)),
+                        subtitle: Text(payment.confirmed
+                            ? payment.status
+                            : '${payment.status} - sin confirmar'),
+                        trailing: Text(formatCurrency(
+                            payment.confirmed ? payment.amountPaid : 0)),
                         onTap: () => context.push('/payments/${payment.id}'),
                       ),
                   ],
@@ -783,7 +1046,8 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: (isDark ? AppColors.lightGreen : AppColors.green).withOpacity(0.10),
+        color:
+            (isDark ? AppColors.lightGreen : AppColors.green).withOpacity(0.10),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -810,6 +1074,54 @@ class _PaymentRows extends StatelessWidget {
         _AmountRow(label: 'Pagado', value: payment.amountPaid),
         _AmountRow(label: 'Pendiente', value: payment.remaining),
       ],
+    );
+  }
+}
+
+class _PaymentEvidenceGrid extends StatelessWidget {
+  const _PaymentEvidenceGrid({required this.imageRefs});
+
+  final List<String> imageRefs;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: imageRefs.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemBuilder: (context, index) {
+        final imageRef = imageRefs[index];
+        final url = remoteImageUrl(imageRef);
+        if (url == null) return const SizedBox.shrink();
+        return InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => showDialog<void>(
+            context: context,
+            builder: (context) => Dialog(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(url, fit: BoxFit.contain),
+              ),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(
+                color: AppColors.mist,
+                child: const Icon(Icons.broken_image_outlined),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

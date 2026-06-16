@@ -171,6 +171,7 @@ class Payment {
     required this.confirmed,
     required this.userId,
     required this.expenseId,
+    required this.evidencePhotos,
   });
 
   final int id;
@@ -181,6 +182,7 @@ class Payment {
   final bool confirmed;
   final int userId;
   final int expenseId;
+  final List<String> evidencePhotos;
 
   double get remaining => max(0, amount - amountPaid);
 
@@ -193,6 +195,10 @@ class Payment {
         confirmed: json['confirmed'] == true,
         userId: _toInt(json['userId']),
         expenseId: _toInt(json['expenseId']),
+        evidencePhotos: ((json['evidencePhotos'] as List?) ?? const [])
+            .map((item) => item.toString())
+            .where((item) => item.trim().isNotEmpty)
+            .toList(),
       );
 }
 
@@ -220,6 +226,34 @@ class Receipt {
         amount: _toDouble(json['amount']),
         issueDate: _toDate(json['issueDate']),
         imagePath: json['imagePath']?.toString() ?? '',
+      );
+}
+
+class ReceiptOcr {
+  const ReceiptOcr({
+    required this.name,
+    required this.receiptNumber,
+    required this.amount,
+    required this.imagePath,
+    required this.dataFields,
+    this.issueDate,
+  });
+
+  final String name;
+  final String receiptNumber;
+  final double amount;
+  final DateTime? issueDate;
+  final String imagePath;
+  final Map<String, Object?> dataFields;
+
+  factory ReceiptOcr.fromJson(Map<String, Object?> json) => ReceiptOcr(
+        name: json['name']?.toString() ?? '',
+        receiptNumber: json['receiptNumber']?.toString() ?? '',
+        amount: _toDouble(json['amount']),
+        issueDate: _toDate(json['issueDate']),
+        imagePath: json['imagePath']?.toString() ?? '',
+        dataFields:
+            Map<String, Object?>.from((json['dataFields'] as Map?) ?? const {}),
       );
 }
 
@@ -285,7 +319,8 @@ class ReputationEvent {
   final String description;
   final DateTime? occurredAt;
 
-  factory ReputationEvent.fromJson(Map<String, Object?> json) => ReputationEvent(
+  factory ReputationEvent.fromJson(Map<String, Object?> json) =>
+      ReputationEvent(
         id: _toInt(json['id']),
         userId: _toInt(json['userId']),
         groupId: _toInt(json['groupId']),
@@ -351,7 +386,8 @@ class LeaderboardEntry {
   final bool currentUser;
   final String trend;
 
-  factory LeaderboardEntry.fromJson(Map<String, Object?> json) => LeaderboardEntry(
+  factory LeaderboardEntry.fromJson(Map<String, Object?> json) =>
+      LeaderboardEntry(
         userId: _toInt(json['userId']),
         fullName: json['fullName']?.toString() ?? '',
         photo: json['photo']?.toString() ?? '',
@@ -381,7 +417,8 @@ class PublicMemberProfile {
   final List<PblBadge> badges;
   final int completedPaymentsInGroup;
 
-  factory PublicMemberProfile.fromJson(Map<String, Object?> json) => PublicMemberProfile(
+  factory PublicMemberProfile.fromJson(Map<String, Object?> json) =>
+      PublicMemberProfile(
         userId: _toInt(json['userId']),
         fullName: json['fullName']?.toString() ?? '',
         photo: json['photo']?.toString() ?? '',

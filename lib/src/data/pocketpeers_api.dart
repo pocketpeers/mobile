@@ -135,7 +135,8 @@ class PocketPeersApi {
   }
 
   Future<List<Group>> getGroupsByUserId(int userId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/groups/user/$userId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/groups/user/$userId');
     return _list(response.data, Group.fromJson);
   }
 
@@ -171,7 +172,8 @@ class PocketPeersApi {
   }
 
   Future<String> generateInvitation(int groupId) async {
-    final response = await _dio.post<String>('/api/v1/groups/$groupId/generate-invitation');
+    final response =
+        await _dio.post<String>('/api/v1/groups/$groupId/generate-invitation');
     return response.data ?? '';
   }
 
@@ -187,17 +189,20 @@ class PocketPeersApi {
   }
 
   Future<List<GroupMember>> getGroupMembers(int groupId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/groups/$groupId/members');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/groups/$groupId/members');
     return _list(response.data, GroupMember.fromJson);
   }
 
   Future<List<Expense>> getExpensesByGroup(int groupId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/expenses/groupId/$groupId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/expenses/groupId/$groupId');
     return _list(response.data, Expense.fromJson);
   }
 
   Future<List<Expense>> getExpensesByUser(int userId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/expenses/userId/$userId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/expenses/userId/$userId');
     return _list(response.data, Expense.fromJson);
   }
 
@@ -285,17 +290,20 @@ class PocketPeersApi {
   }
 
   Future<List<Payment>> getPaymentsByUser(int userId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/payments/userId/$userId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/payments/userId/$userId');
     return _list(response.data, Payment.fromJson);
   }
 
   Future<List<Payment>> getIncomingPayments(int userId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/payments/incoming/$userId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/payments/incoming/$userId');
     return _list(response.data, Payment.fromJson);
   }
 
   Future<List<Payment>> getPaymentsByExpense(int expenseId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/payments/expenseId/$expenseId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/payments/expenseId/$expenseId');
     return _list(response.data, Payment.fromJson);
   }
 
@@ -354,24 +362,27 @@ class PocketPeersApi {
   }
 
   Future<List<Receipt>> getReceiptsByExpense(int expenseId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/receipts/expense/$expenseId');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/receipts/expense/$expenseId');
     return _list(response.data, Receipt.fromJson);
   }
 
-  Future<Map<String, Object?>> ocrFromImage(String imageId) async {
+  Future<ReceiptOcr> ocrFromImage(String imageId) async {
     final response = await _dio.post<JsonMap>(
       '/api/v1/ocr-receipt/from-image',
       data: {'imageId': imageId},
     );
-    return response.data ?? {};
+    return ReceiptOcr.fromJson(response.data ?? {});
   }
 
   Future<Reputation> getReputation(int userId) async {
-    final response = await _dio.get<JsonMap>('/api/v1/pbl/users/$userId/reputation');
+    final response =
+        await _dio.get<JsonMap>('/api/v1/pbl/users/$userId/reputation');
     return Reputation.fromJson(response.data ?? {});
   }
 
-  Future<List<ReputationEvent>> getReputationHistory(int userId, {int days = 90}) async {
+  Future<List<ReputationEvent>> getReputationHistory(int userId,
+      {int days = 90}) async {
     final response = await _dio.get<List<dynamic>>(
       '/api/v1/pbl/users/$userId/history',
       queryParameters: {'days': days},
@@ -380,7 +391,8 @@ class PocketPeersApi {
   }
 
   Future<List<PblBadge>> getBadges(int userId) async {
-    final response = await _dio.get<List<dynamic>>('/api/v1/pbl/users/$userId/badges');
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/pbl/users/$userId/badges');
     return _list(response.data, PblBadge.fromJson);
   }
 
