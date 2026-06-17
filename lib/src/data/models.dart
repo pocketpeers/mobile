@@ -14,7 +14,26 @@ int _toInt(Object? value) {
 
 DateTime? _toDate(Object? value) {
   if (value == null) return null;
-  return DateTime.tryParse(value.toString());
+  if (value is DateTime) return value;
+  if (value is Map) {
+    return _toDate(value['dueDate'] ??
+        value['date'] ??
+        value['value'] ??
+        value['createdAt'] ??
+        value['updatedAt']);
+  }
+  if (value is List) {
+    if (value.length >= 3) {
+      final year = _toInt(value[0]);
+      final month = _toInt(value[1]);
+      final day = _toInt(value[2]);
+      if (year > 0 && month > 0 && day > 0) {
+        return DateTime(year, month, day);
+      }
+    }
+    return null;
+  }
+  return DateTime.tryParse(value.toString().replaceFirst(' ', 'T'));
 }
 
 class AuthSession {
