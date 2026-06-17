@@ -371,6 +371,10 @@ class PocketPeersApi {
     final response = await _dio.post<JsonMap>(
       '/api/v1/ocr-receipt/from-image',
       data: {'imageId': imageId},
+      options: Options(
+        receiveTimeout: const Duration(minutes: 3),
+        sendTimeout: const Duration(seconds: 30),
+      ),
     );
     return ReceiptOcr.fromJson(response.data ?? {});
   }
