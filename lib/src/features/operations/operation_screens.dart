@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -210,18 +211,24 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Datos detectados por OCR')),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _receiptImageId = uploadedImageId;
         _ocrReceipt = null;
       });
+      final isTimeout = error is DioException &&
+          (error.type == DioExceptionType.connectionTimeout ||
+              error.type == DioExceptionType.receiveTimeout ||
+              error.type == DioExceptionType.sendTimeout);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             uploadedImageId.isEmpty
                 ? 'No se pudo cargar el recibo'
-                : 'Recibo cargado, pero no se pudo leer con OCR',
+                : isTimeout
+                    ? 'Recibo cargado, pero OCR tardo demasiado. Intenta otra vez.'
+                    : 'Recibo cargado, pero no se pudo leer con OCR',
           ),
         ),
       );
@@ -664,8 +671,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
           final canConfirmPayment = session?.id == expenseOwnerId &&
               !item.confirmed &&
               item.status != 'PENDING';
-          final canViewEvidence =
-              session?.id == expenseOwnerId && item.evidencePhotos.isNotEmpty;
+          final canViewEvidence = item.evidencePhotos.isNotEmpty;
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -696,7 +702,6 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                         const SizedBox(height: 8),
                         const LinearProgressIndicator(),
                       ],
-                      Text('Hash blockchain: pendiente de backend'),
                     ],
                   ),
                 ),
