@@ -7,7 +7,7 @@ import '../data/pocketpeers_api.dart';
 
 final apiProvider = Provider<PocketPeersApi>((ref) => PocketPeersApi());
 final reminderServiceProvider = Provider<ReminderService>((ref) => ReminderService());
-final remindersEnabledProvider = StateProvider<bool>((ref) => true);
+final remindersEnabledProvider = StateProvider<bool>((ref) => false);
 final onboardingCompletedProvider = FutureProvider<bool>((ref) {
   return ref.read(apiProvider).isOnboardingCompleted();
 });

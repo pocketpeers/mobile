@@ -29,11 +29,8 @@ class SplashScreen extends StatelessWidget {
                   height: 88,
                   child: Padding(
                     padding: const EdgeInsets.all(4.0), // Un pequeño espacio para que no toque los bordes
-                    child: Image.asset(
-                      isDark
-                          ? 'assets/images/logo-dark.png'
-                          : 'assets/images/logo-transparent.png',
-                      fit: BoxFit.contain,
+                    child: Icon(Icons.account_balance_wallet_outlined,
+                      size: 88,
                     ),
                   ),
                 ),

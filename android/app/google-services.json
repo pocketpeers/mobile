@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "594970257254",
+    "project_id": "pocketpeers",
+    "storage_bucket": "pocketpeers.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:594970257254:android:283960a9e2e158e2bf8aa7",
+        "android_client_info": {
+          "package_name": "com.example.pocketpeers"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD7Rydf3jDc5V_OLisb13zsu9eVeVz_6b0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

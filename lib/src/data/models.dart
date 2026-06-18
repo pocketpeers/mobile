@@ -285,6 +285,43 @@ class ImageUpload {
       ImageUpload(json['imageId']?.toString() ?? '');
 }
 
+class PaymentReminder {
+  const PaymentReminder({
+    required this.id,
+    required this.paymentId,
+    required this.expenseId,
+    required this.groupId,
+    required this.groupName,
+    required this.type,
+    required this.title,
+    required this.body,
+    this.createdAt,
+  });
+
+  final int id;
+  final int paymentId;
+  final int expenseId;
+  final int groupId;
+  final String groupName;
+  final String type;
+  final String title;
+  final String body;
+  final DateTime? createdAt;
+
+  factory PaymentReminder.fromJson(Map<String, Object?> json) =>
+      PaymentReminder(
+        id: _toInt(json['id']),
+        paymentId: _toInt(json['paymentId']),
+        expenseId: _toInt(json['expenseId']),
+        groupId: _toInt(json['groupId']),
+        groupName: json['groupName']?.toString() ?? '',
+        type: json['type']?.toString() ?? '',
+        title: json['title']?.toString() ?? 'Recordatorio de pago',
+        body: json['body']?.toString() ?? '',
+        createdAt: _toDate(json['createdAt']),
+      );
+}
+
 class Reputation {
   const Reputation({
     required this.userId,

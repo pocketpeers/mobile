@@ -21,7 +21,6 @@ class SettingsScreen extends ConsumerWidget {
     final reputation = ref.watch(myReputationProvider);
     final badges = ref.watch(myBadgesProvider);
     final session = ref.watch(authControllerProvider).valueOrNull;
-    final remindersEnabled = ref.watch(remindersEnabledProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
       body: ListView(
@@ -119,19 +118,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.notifications_active_outlined),
-                  title: const Text('Recordatorios de pago'),
-                  subtitle: const Text(
-                      'Se calculan localmente desde las fechas limite'),
-                  value: remindersEnabled,
-                  onChanged: (value) async {
-                    ref.read(remindersEnabledProvider.notifier).state = value;
-                    if (value) {
-                      await ref.read(reminderServiceProvider).initialize();
-                    }
-                  },
-                ),
+                const _NotificationSettingsTile(),
                 const Divider(height: 1),
                 ListTile(
                   leading:
@@ -154,6 +141,113 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _NotificationSettingsTile extends ConsumerStatefulWidget {
+  const _NotificationSettingsTile();
+
+  @override
+  ConsumerState<_NotificationSettingsTile> createState() =>
+      _NotificationSettingsTileState();
+}
+
+class _NotificationSettingsTileState
+    extends ConsumerState<_NotificationSettingsTile> {
+  var _updating = false;
+  var _testing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final remindersEnabled = ref.watch(remindersEnabledProvider);
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.notifications_active_outlined),
+          title: const Text('Recordatorios de pago'),
+          //subtitle: const Text('Registra este dispositivo para FCM'),
+          value: remindersEnabled,
+          onChanged: _updating ? null : _setEnabled,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: remindersEnabled && !_testing ? _sendTest : null,
+              icon: _testing
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.notification_add_outlined),
+              label: const Text('Enviar prueba'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    if (!value) {
+      ref.read(remindersEnabledProvider.notifier).state = false;
+      return;
+    }
+
+    setState(() => _updating = true);
+    try {
+      final token = await ref
+          .read(reminderServiceProvider)
+          .registerDevice(ref.read(apiProvider));
+      ref.read(remindersEnabledProvider.notifier).state = true;
+      if (mounted) {
+        _showMessage('Dispositivo registrado: ${_shortToken(token)}');
+      }
+    } catch (error) {
+      ref.read(remindersEnabledProvider.notifier).state = false;
+      if (mounted) {
+        _showMessage('No se pudo activar FCM: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  Future<void> _sendTest() async {
+    setState(() => _testing = true);
+    try {
+      final result = await ref.read(apiProvider).sendTestNotification();
+      if (mounted) {
+        _showMessage(_formatTestResult(result));
+      }
+    } catch (error) {
+      if (mounted) {
+        _showMessage('No se pudo enviar la prueba: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  String _shortToken(String token) {
+    if (token.length <= 16) return token;
+    return '${token.substring(0, 8)}...${token.substring(token.length - 8)}';
+  }
+
+  String _formatTestResult(Map<String, Object?> result) {
+    final message = result['message']?.toString() ?? 'Prueba enviada';
+    final tokens = result['registeredDeviceTokens']?.toString();
+    final sent = result['sent']?.toString();
+    final failed = result['failed']?.toString();
+    if (tokens == null || sent == null || failed == null) return message;
+    return '$message. Tokens: $tokens, enviados: $sent, fallidos: $failed';
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 }

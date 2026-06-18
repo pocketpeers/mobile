@@ -379,6 +379,37 @@ class PocketPeersApi {
     return ReceiptOcr.fromJson(response.data ?? {});
   }
 
+  Future<List<PaymentReminder>> getUnreadNotifications() async {
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/notifications/unread');
+    return _list(response.data, PaymentReminder.fromJson);
+  }
+
+  Future<void> markNotificationRead(int notificationId) async {
+    await _dio.post<JsonMap>('/api/v1/notifications/$notificationId/read');
+  }
+
+  Future<void> registerDeviceToken({
+    required String token,
+    required String platform,
+  }) async {
+    await _dio.post<JsonMap>(
+      '/api/v1/notifications/device-tokens',
+      data: {'token': token, 'platform': platform},
+    );
+  }
+
+  Future<JsonMap> sendTestNotification({
+    String title = 'PocketPeers test',
+    String body = 'Testing notifications from the mobile app',
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/notifications/test',
+      data: {'title': title, 'body': body},
+    );
+    return response.data ?? {};
+  }
+
   Future<Reputation> getReputation(int userId) async {
     final response =
         await _dio.get<JsonMap>('/api/v1/pbl/users/$userId/reputation');
