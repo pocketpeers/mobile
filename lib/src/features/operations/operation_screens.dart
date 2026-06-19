@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
 import '../../data/calculations.dart';
@@ -30,7 +31,6 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   final _amount = TextEditingController();
   final _customAmounts = <int, TextEditingController>{};
   final _selectedMemberIds = <int>{};
-  final _receiptPicker = ImagePicker();
   var _splitMode = SplitMode.equal;
   var _dueDate = DateTime.now().add(const Duration(days: 7));
   var _saving = false;
@@ -91,7 +91,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             const SizedBox(height: 12),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.event_outlined, color: AppColors.blue),
+              leading:
+                  Icon(Icons.event_outlined, color: context.primaryIconColor),
               title: const Text('Fecha limite'),
               subtitle: Text(inputDateFormatter.format(_dueDate)),
               trailing: const Icon(Icons.edit_calendar_outlined),
@@ -185,7 +186,7 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   }
 
   Future<void> _scanReceipt() async {
-    final image = await _receiptPicker.pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
     setState(() => _scanningReceipt = true);
     var uploadedImageId = '';
@@ -638,7 +639,6 @@ class PaymentDetailScreen extends ConsumerStatefulWidget {
 
 class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   final _amount = TextEditingController();
-  final _picker = ImagePicker();
   XFile? _evidence;
   var _saving = false;
   var _confirming = false;
@@ -780,7 +780,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   }
 
   Future<void> _pickEvidence() async {
-    final image = await _picker.pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image != null) setState(() => _evidence = image);
   }
 
@@ -990,12 +990,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                             PieChartSectionData(
                               value: summary.totalPaid,
                               title: 'Pagado',
-                              color: AppColors.green,
+                              color: context.successIconColor,
                             ),
                             PieChartSectionData(
                               value: summary.totalPending,
                               title: 'Pendiente',
-                              color: AppColors.blue,
+                              color: context.primaryIconColor,
                             ),
                           ],
                         ),
@@ -1017,10 +1017,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     for (final payment in summary.recentPayments)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: const CircleAvatar(
-                          backgroundColor: AppColors.mist,
-                          foregroundColor: AppColors.green,
-                          child: Icon(Icons.swap_horiz_outlined),
+                        leading: CircleAvatar(
+                          backgroundColor: context.successIconContainerColor,
+                          foregroundColor: context.successIconColor,
+                          child: const Icon(Icons.swap_horiz_outlined),
                         ),
                         title: Text(payment.description),
                         subtitle: Text(payment.confirmed

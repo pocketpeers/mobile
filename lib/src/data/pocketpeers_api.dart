@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../core/config.dart';
 import 'models.dart';
@@ -30,17 +29,6 @@ class PocketPeersApi {
           }
           handler.next(options);
         },
-      ),
-    );
-    _dio.interceptors.add(
-      PrettyDioLogger(
-        requestHeader: true,
-        requestBody: true,
-        responseBody: true,
-        responseHeader: false,
-        error: true,
-        compact: true,
-        maxWidth: 90,
       ),
     );
   }

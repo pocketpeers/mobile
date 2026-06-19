@@ -9,7 +9,28 @@ class AppColors {
   static const darkBg = Color(0xFF071A2F);
   static const darkSurface = Color(0xFF0B2545);
   static const darkLine = Color(0xFF214B73);
+  static const lightBlue = Color(0xFF74B9F2);
   static const lightGreen = Color(0xFF43A36D);
+}
+
+extension AppThemeColors on BuildContext {
+  bool get isDarkMode => Theme.of(this).brightness == Brightness.dark;
+
+  Color get primaryIconColor =>
+      isDarkMode ? AppColors.lightBlue : AppColors.blue;
+
+  Color get successIconColor =>
+      isDarkMode ? AppColors.lightGreen : AppColors.green;
+
+  Color get mutedIconColor => isDarkMode
+      ? Colors.white.withOpacity(0.72)
+      : AppColors.navy.withOpacity(0.68);
+
+  Color get primaryIconContainerColor =>
+      primaryIconColor.withOpacity(isDarkMode ? 0.18 : 0.10);
+
+  Color get successIconContainerColor =>
+      successIconColor.withOpacity(isDarkMode ? 0.18 : 0.10);
 }
 
 class AppTheme {
@@ -61,6 +82,8 @@ class AppTheme {
         backgroundColor: AppColors.green,
         foregroundColor: Colors.white,
       ),
+      iconTheme: const IconThemeData(color: AppColors.navy),
+      listTileTheme: const ListTileThemeData(iconColor: AppColors.navy),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
@@ -106,11 +129,11 @@ class AppTheme {
 
   static ThemeData get dark {
     final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.blue,
+      seedColor: AppColors.lightBlue,
       brightness: Brightness.dark,
-      primary: AppColors.blue,
+      primary: AppColors.lightBlue,
       secondary: AppColors.lightGreen,
-      tertiary: AppColors.green,
+      tertiary: AppColors.lightGreen,
       surface: AppColors.darkSurface,
       surfaceContainerHighest: const Color(0xFF102F53),
     );
@@ -153,6 +176,8 @@ class AppTheme {
         backgroundColor: AppColors.lightGreen,
         foregroundColor: Colors.white,
       ),
+      iconTheme: const IconThemeData(color: Colors.white70),
+      listTileTheme: const ListTileThemeData(iconColor: Colors.white70),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFF102F53),

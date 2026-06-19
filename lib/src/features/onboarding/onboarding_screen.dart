@@ -22,17 +22,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _OnboardingPageData(
       icon: Icons.account_balance_wallet_outlined,
       title: 'PocketPeers',
-      body: 'Organiza gastos compartidos, registra deudas y mantén claridad sobre quién debe pagar.',
+      body:
+          'Organiza gastos compartidos, registra deudas y mantén claridad sobre quién debe pagar.',
     ),
     _OnboardingPageData(
       icon: Icons.trending_up_outlined,
       title: 'Score de reputacion',
-      body: 'Tu score sube con pagos puntuales, abonos parciales y rachas; baja cuando pagas tarde.',
+      body:
+          'Tu score sube con pagos puntuales, abonos parciales y rachas; baja cuando pagas tarde.',
     ),
     _OnboardingPageData(
       icon: Icons.group_add_outlined,
       title: 'Primer grupo',
-      body: 'Crea un grupo, invita miembros y registra un gasto para empezar a dividir pagos.',
+      body:
+          'Crea un grupo, invita miembros y registra un gasto para empezar a dividir pagos.',
     ),
   ];
 
@@ -73,10 +76,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           width: 96,
                           height: 96,
                           decoration: BoxDecoration(
-                            color: AppColors.green.withOpacity(0.12),
+                            color: context.successIconContainerColor,
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Icon(item.icon, size: 48, color: AppColors.green),
+                          child: Icon(
+                            item.icon,
+                            size: 48,
+                            color: context.successIconColor,
+                          ),
                         ),
                         const SizedBox(height: 24),
                         Text(
@@ -113,7 +120,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           height: 8,
                           margin: const EdgeInsets.symmetric(horizontal: 4),
                           decoration: BoxDecoration(
-                            color: i == _index ? AppColors.green : AppColors.line,
+                            color: i == _index
+                                ? context.successIconColor
+                                : Theme.of(context).dividerColor,
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
@@ -130,7 +139,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     icon: Icon(_index == _pages.length - 1
                         ? Icons.check_outlined
                         : Icons.arrow_forward_outlined),
-                    label: Text(_index == _pages.length - 1 ? 'Empezar' : 'Siguiente'),
+                    label: Text(
+                        _index == _pages.length - 1 ? 'Empezar' : 'Siguiente'),
                   ),
                 ],
               ),

@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
 import '../../data/models.dart';
@@ -131,8 +131,8 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         subtitle: Text(group.description),
-                        trailing: const Icon(Icons.chevron_right,
-                            color: AppColors.green),
+                        trailing: Icon(Icons.chevron_right,
+                            color: context.successIconColor),
                         onTap: () => context.push('/groups/${group.id}'),
                       ),
                     ),
@@ -248,7 +248,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 
   Future<void> _pickGroupPhoto() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
     final uploaded = await ref.read(apiProvider).uploadImage(image.path);
     setState(() => _groupPhoto = uploaded.imageId);
@@ -507,10 +507,11 @@ class _LeaderboardList extends StatelessWidget {
                   size: 44,
                   borderRadius: 22,
                   backgroundColor: entry.currentUser
-                      ? AppColors.green.withOpacity(0.18)
-                      : AppColors.mist,
-                  iconColor:
-                      entry.currentUser ? AppColors.green : AppColors.blue,
+                      ? context.successIconContainerColor
+                      : context.primaryIconContainerColor,
+                  iconColor: entry.currentUser
+                      ? context.successIconColor
+                      : context.primaryIconColor,
                 ),
                 Container(
                   padding:
@@ -542,7 +543,7 @@ class _LeaderboardList extends StatelessWidget {
               children: [
                 Icon(
                   _trendIcon(entry.trend),
-                  color: _trendColor(entry.trend),
+                  color: _trendColor(context, entry.trend),
                   size: 18,
                 ),
                 const SizedBox(width: 6),
@@ -573,9 +574,9 @@ class _LeaderboardList extends StatelessWidget {
     return Icons.remove;
   }
 
-  static Color _trendColor(String trend) {
-    if (trend == 'UP') return AppColors.green;
-    if (trend == 'DOWN') return Colors.red;
+  static Color _trendColor(BuildContext context, String trend) {
+    if (trend == 'UP') return context.successIconColor;
+    if (trend == 'DOWN') return Colors.redAccent;
     return Colors.grey;
   }
 }
@@ -694,12 +695,12 @@ class _GroupSummaryCard extends StatelessWidget {
                   PieChartSectionData(
                     value: summary.totalPaid,
                     title: 'Pagado',
-                    color: AppColors.green,
+                    color: context.successIconColor,
                   ),
                   PieChartSectionData(
                     value: summary.totalPending,
                     title: 'Pendiente',
-                    color: AppColors.blue,
+                    color: context.primaryIconColor,
                   ),
                 ],
               ),
@@ -718,11 +719,11 @@ class _GroupSummaryCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: AppColors.green.withOpacity(0.10),
+                  color: context.successIconContainerColor,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child:
-                    const Icon(Icons.payments_outlined, color: AppColors.green),
+                child: Icon(Icons.payments_outlined,
+                    color: context.successIconColor),
               ),
               title: Text(debt.name),
               subtitle: const Text('Debe al grupo'),
@@ -751,7 +752,8 @@ class _ExpensePayments extends ConsumerWidget {
           for (final payment in items)
             ListTile(
               contentPadding: const EdgeInsets.only(left: 16),
-              leading: const Icon(Icons.arrow_forward, color: AppColors.blue),
+              leading:
+                  Icon(Icons.arrow_forward, color: context.primaryIconColor),
               title: Text(payment.description),
               subtitle: Text(payment.confirmed
                   ? payment.status

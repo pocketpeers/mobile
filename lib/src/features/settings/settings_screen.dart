@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
 import '../../data/models.dart';
@@ -108,8 +108,8 @@ class SettingsScreen extends ConsumerWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.group_add_outlined,
-                      color: AppColors.blue),
+                  leading: Icon(Icons.group_add_outlined,
+                      color: context.primaryIconColor),
                   title: const Text('Unirme a un grupo'),
                   subtitle: const Text('Ingresa el codigo de invitacion'),
                   onTap: () => showDialog<void>(
@@ -122,14 +122,14 @@ class SettingsScreen extends ConsumerWidget {
                 const Divider(height: 1),
                 ListTile(
                   leading:
-                      const Icon(Icons.help_outline, color: AppColors.blue),
+                      Icon(Icons.help_outline, color: context.primaryIconColor),
                   title: const Text('Ayuda'),
                   subtitle: const Text('Ver nuevamente el onboarding'),
                   onTap: () => context.push('/onboarding'),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.logout, color: AppColors.green),
+                  leading: Icon(Icons.logout, color: context.successIconColor),
                   title: const Text('Cerrar sesion'),
                   onTap: () async {
                     await ref.read(authControllerProvider.notifier).signOut();
@@ -369,7 +369,7 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
   }
 
   Future<void> _pickPhoto() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
     final uploaded = await ref.read(apiProvider).uploadImage(image.path);
     setState(() => _photo = uploaded.imageId);
@@ -415,8 +415,8 @@ class _ReputationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.workspace_premium_outlined,
-                    color: AppColors.green),
+                Icon(Icons.workspace_premium_outlined,
+                    color: context.successIconColor),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text('Score de reputacion',
@@ -462,6 +462,7 @@ class _BadgesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final successColor = context.successIconColor;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -486,12 +487,12 @@ class _BadgesCard extends StatelessWidget {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: badge.unlocked
-                            ? AppColors.green.withOpacity(0.10)
+                            ? context.successIconContainerColor
                             : Colors.grey.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: badge.unlocked
-                              ? AppColors.green
+                              ? successColor
                               : Colors.grey.shade300,
                         ),
                       ),
@@ -502,8 +503,7 @@ class _BadgesCard extends StatelessWidget {
                             badge.unlocked
                                 ? Icons.verified_outlined
                                 : Icons.lock_outline,
-                            color:
-                                badge.unlocked ? AppColors.green : Colors.grey,
+                            color: badge.unlocked ? successColor : Colors.grey,
                           ),
                           const SizedBox(height: 8),
                           Text(

@@ -189,12 +189,15 @@ class _ReputationHistoryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Evolucion del score', style: Theme.of(context).textTheme.titleMedium),
+            Text('Evolucion del score',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
             SizedBox(
               height: 160,
               child: chartEvents.isEmpty
-                  ? const Center(child: Text('Tu score se construira con tus primeras transacciones'))
+                  ? const Center(
+                      child: Text(
+                          'Tu score se construira con tus primeras transacciones'))
                   : LineChart(
                       LineChartData(
                         borderData: FlBorderData(show: false),
@@ -207,9 +210,10 @@ class _ReputationHistoryCard extends StatelessWidget {
                           LineChartBarData(
                             spots: [
                               for (var i = 0; i < chartEvents.length; i++)
-                                FlSpot(i.toDouble(), chartEvents[i].resultingScore.toDouble()),
+                                FlSpot(i.toDouble(),
+                                    chartEvents[i].resultingScore.toDouble()),
                             ],
-                            color: AppColors.green,
+                            color: context.successIconColor,
                             barWidth: 3,
                             dotData: const FlDotData(show: true),
                           ),
@@ -224,11 +228,18 @@ class _ReputationHistoryCard extends StatelessWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
-                    event.pointsDelta >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
-                    color: event.pointsDelta >= 0 ? AppColors.green : Colors.red,
+                    event.pointsDelta >= 0
+                        ? Icons.arrow_upward
+                        : Icons.arrow_downward,
+                    color: event.pointsDelta >= 0
+                        ? context.successIconColor
+                        : Colors.redAccent,
                   ),
-                  title: Text(event.description.isEmpty ? event.type : event.description),
-                  trailing: Text('${event.pointsDelta >= 0 ? '+' : ''}${event.pointsDelta}'),
+                  title: Text(event.description.isEmpty
+                      ? event.type
+                      : event.description),
+                  trailing: Text(
+                      '${event.pointsDelta >= 0 ? '+' : ''}${event.pointsDelta}'),
                 ),
             ],
           ],
@@ -253,7 +264,8 @@ class _MonthlyChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Gastos mensuales', style: Theme.of(context).textTheme.titleMedium),
+            Text('Gastos mensuales',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
             SizedBox(
               height: 220,
@@ -286,7 +298,9 @@ class _MonthlyChart extends StatelessWidget {
                               barRods: [
                                 BarChartRodData(
                                   toY: entries[i].value,
-                                  color: i.isEven ? AppColors.blue : AppColors.green,
+                                  color: i.isEven
+                                      ? context.primaryIconColor
+                                      : context.successIconColor,
                                   width: 18,
                                   borderRadius: BorderRadius.circular(4),
                                 ),
@@ -316,7 +330,8 @@ class _RecentTransactions extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Transacciones recientes', style: Theme.of(context).textTheme.titleMedium),
+            Text('Transacciones recientes',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             if (payments.isEmpty)
               const ListTile(title: Text('Sin transacciones'))
@@ -324,14 +339,17 @@ class _RecentTransactions extends StatelessWidget {
               for (final payment in payments)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
-                    backgroundColor: AppColors.mist,
-                    foregroundColor: AppColors.blue,
-                    child: Icon(Icons.receipt_long_outlined),
+                  leading: CircleAvatar(
+                    backgroundColor: context.primaryIconContainerColor,
+                    foregroundColor: context.primaryIconColor,
+                    child: const Icon(Icons.receipt_long_outlined),
                   ),
                   title: Text(payment.description),
-                  subtitle: Text(payment.confirmed ? payment.status : '${payment.status} - sin confirmar'),
-                  trailing: Text(formatCurrency(payment.confirmed ? payment.amountPaid : 0)),
+                  subtitle: Text(payment.confirmed
+                      ? payment.status
+                      : '${payment.status} - sin confirmar'),
+                  trailing: Text(formatCurrency(
+                      payment.confirmed ? payment.amountPaid : 0)),
                   onTap: () => context.push('/payments/${payment.id}'),
                 ),
           ],
@@ -370,12 +388,12 @@ class MetricCard extends StatelessWidget {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: AppColors.green.withOpacity(0.10),
+                      color: context.successIconContainerColor,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       icon,
-                      color: isDark ? AppColors.lightGreen : AppColors.green,
+                      color: context.successIconColor,
                       size: 18,
                     ),
                   ),
