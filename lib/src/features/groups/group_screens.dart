@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/badge_visuals.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
@@ -643,7 +644,11 @@ class _PublicMemberProfileDialog extends ConsumerWidget {
                   children: [
                     for (final badge in item.badges)
                       Chip(
-                        avatar: const Icon(Icons.verified_outlined, size: 18),
+                        avatar: Icon(
+                          badgeIconForCode(badge.code),
+                          color: badgeColorForCode(context, badge.code),
+                          size: 18,
+                        ),
                         label: Text(badge.name),
                       ),
                   ],

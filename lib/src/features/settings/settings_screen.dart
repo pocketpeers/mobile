@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/badge_visuals.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
@@ -462,7 +463,6 @@ class _BadgesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final successColor = context.successIconColor;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -480,52 +480,94 @@ class _BadgesCard extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 1.35,
+                childAspectRatio: 1.15,
                 children: [
                   for (final badge in badges)
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: badge.unlocked
-                            ? context.successIconContainerColor
-                            : Colors.grey.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: badge.unlocked
-                              ? successColor
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            badge.unlocked
-                                ? Icons.verified_outlined
-                                : Icons.lock_outline,
-                            color: badge.unlocked ? successColor : Colors.grey,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            badge.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          Text(
-                            badge.unlocked && badge.unlockedAt != null
-                                ? formatDate(badge.unlockedAt)
-                                : badge.description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
+                    _BadgeTile(badge: badge),
                 ],
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _BadgeTile extends StatelessWidget {
+  const _BadgeTile({required this.badge});
+
+  final PblBadge badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = badgeColorForCode(context, badge.code);
+    final lockedColor =
+        context.isDarkMode ? Colors.white54 : Colors.grey.shade600;
+    final borderColor = badge.unlocked ? accentColor : Colors.grey.shade300;
+    final iconColor = badge.unlocked ? accentColor : lockedColor;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: badge.unlocked
+            ? accentColor.withOpacity(context.isDarkMode ? 0.18 : 0.10)
+            : Colors.grey.withOpacity(context.isDarkMode ? 0.18 : 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: badge.unlocked
+                      ? accentColor.withOpacity(0.16)
+                      : Colors.grey.withOpacity(0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  badgeIconForCode(badge.code),
+                  color: iconColor,
+                  size: 20,
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                badge.unlocked
+                    ? Icons.verified_outlined
+                    : Icons.lock_outline,
+                color: badge.unlocked ? accentColor : lockedColor,
+                size: 18,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            badge.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 2),
+          Expanded(
+            child: Text(
+              badge.unlocked && badge.unlockedAt != null
+                  ? 'Desbloqueado ${formatDate(badge.unlockedAt)}'
+                  : badge.description,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: badge.unlocked
+                        ? Theme.of(context).colorScheme.onSurface
+                        : lockedColor,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }
