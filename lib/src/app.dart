@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/app_motion.dart';
 import 'core/app_theme.dart';
 import 'data/models.dart';
 import 'features/auth/auth_screen.dart';
@@ -32,7 +33,7 @@ final _routerProvider = Provider<GoRouter>((ref) {
     Future.delayed(const Duration(seconds: 2), () {
       _isMinSplashTimePassed = true;
       // Esto fuerza a GoRouter a reevaluar las redirecciones cuando termine el segundo
-      ref.invalidateSelf(); 
+      ref.invalidateSelf();
     });
   }
 
@@ -59,9 +60,7 @@ final _routerProvider = Provider<GoRouter>((ref) {
         return onboarding.valueOrNull == false ? '/onboarding' : '/dashboard';
       }
       if (isSignedIn && isAuthRoute) return '/dashboard';
-      if (isSignedIn &&
-          onboarding.valueOrNull == false &&
-          !isOnboardingRoute) {
+      if (isSignedIn && onboarding.valueOrNull == false && !isOnboardingRoute) {
         return '/onboarding';
       }
       return null;
@@ -69,41 +68,75 @@ final _routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(
         path: '/splash',
-        builder: (context, state) => const SplashScreen(),
+        pageBuilder: (context, state) => appTransitionPage(
+          key: state.pageKey,
+          child: const SplashScreen(),
+        ),
       ),
       GoRoute(
         path: '/auth',
-        builder: (context, state) => const AuthScreen(),
+        pageBuilder: (context, state) => appTransitionPage(
+          key: state.pageKey,
+          child: const AuthScreen(),
+        ),
       ),
       GoRoute(
         path: '/onboarding',
-        builder: (context, state) => const OnboardingScreen(),
+        pageBuilder: (context, state) => appTransitionPage(
+          key: state.pageKey,
+          child: const OnboardingScreen(),
+        ),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [
           GoRoute(
             path: '/dashboard',
-            builder: (context, state) => const DashboardScreen(),
+            pageBuilder: (context, state) => appTransitionPage(
+              key: state.pageKey,
+              child: const DashboardScreen(),
+            ),
           ),
           GoRoute(
             path: '/groups',
-            builder: (context, state) => const GroupsScreen(),
+            pageBuilder: (context, state) => appTransitionPage(
+              key: state.pageKey,
+              child: const GroupsScreen(),
+            ),
             routes: [
               GoRoute(
                 path: 'new',
-                builder: (context, state) => const CreateGroupScreen(),
+                pageBuilder: (context, state) => appTransitionPage(
+                  key: state.pageKey,
+                  child: const CreateGroupScreen(),
+                ),
               ),
               GoRoute(
                 path: ':groupId',
-                builder: (context, state) => GroupDetailScreen(
-                  groupId: int.parse(state.pathParameters['groupId']!),
+                pageBuilder: (context, state) => appTransitionPage(
+                  key: state.pageKey,
+                  child: GroupDetailScreen(
+                    groupId: int.parse(state.pathParameters['groupId']!),
+                  ),
                 ),
                 routes: [
                   GoRoute(
+                    path: 'members/:memberId',
+                    pageBuilder: (context, state) => appTransitionPage(
+                      key: state.pageKey,
+                      child: PublicMemberProfileScreen(
+                        groupId: int.parse(state.pathParameters['groupId']!),
+                        memberId: int.parse(state.pathParameters['memberId']!),
+                      ),
+                    ),
+                  ),
+                  GoRoute(
                     path: 'expenses/new',
-                    builder: (context, state) => CreateExpenseScreen(
-                      groupId: int.parse(state.pathParameters['groupId']!),
+                    pageBuilder: (context, state) => appTransitionPage(
+                      key: state.pageKey,
+                      child: CreateExpenseScreen(
+                        groupId: int.parse(state.pathParameters['groupId']!),
+                      ),
                     ),
                   ),
                 ],
@@ -112,17 +145,26 @@ final _routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/reports',
-            builder: (context, state) => const ReportsScreen(),
+            pageBuilder: (context, state) => appTransitionPage(
+              key: state.pageKey,
+              child: const ReportsScreen(),
+            ),
           ),
           GoRoute(
             path: '/payments/:paymentId',
-            builder: (context, state) => PaymentDetailScreen(
-              paymentId: int.parse(state.pathParameters['paymentId']!),
+            pageBuilder: (context, state) => appTransitionPage(
+              key: state.pageKey,
+              child: PaymentDetailScreen(
+                paymentId: int.parse(state.pathParameters['paymentId']!),
+              ),
             ),
           ),
           GoRoute(
             path: '/settings',
-            builder: (context, state) => const SettingsScreen(),
+            pageBuilder: (context, state) => appTransitionPage(
+              key: state.pageKey,
+              child: const SettingsScreen(),
+            ),
           ),
         ],
       ),
@@ -206,14 +248,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
 
     _tokenRefreshSubscription ??= reminderService.tokenRefreshes().listen(
-      (token) => api.registerDeviceToken(token: token, platform: 'refresh'),
-    );
+          (token) => api.registerDeviceToken(token: token, platform: 'refresh'),
+        );
     _foregroundSubscription ??= reminderService.foregroundMessages().listen(
-      _showForegroundFcmReminder,
-    );
+          _showForegroundFcmReminder,
+        );
     _openedSubscription ??= reminderService.openedMessages().listen(
-      _openPaymentFromMessage,
-    );
+          _openPaymentFromMessage,
+        );
 
     final initialMessage = await reminderService.initialMessage();
     if (initialMessage != null) {
@@ -286,7 +328,8 @@ class _AppShellState extends ConsumerState<AppShell> {
           duration: const Duration(seconds: 8),
           action: SnackBarAction(
             label: 'Pagar',
-            onPressed: () => context.push('/payments/${nextReminder?.paymentId}'),
+            onPressed: () =>
+                context.push('/payments/${nextReminder?.paymentId}'),
           ),
         ),
       );
@@ -318,7 +361,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: selected < 0 ? 0 : selected,
-        onDestinationSelected: (index) => context.go(AppShell._tabs[index].path),
+        onDestinationSelected: (index) =>
+            context.go(AppShell._tabs[index].path),
         destinations: [
           for (final tab in AppShell._tabs)
             NavigationDestination(icon: Icon(tab.icon), label: tab.label),

@@ -6,7 +6,8 @@ import '../data/models.dart';
 import '../data/pocketpeers_api.dart';
 
 final apiProvider = Provider<PocketPeersApi>((ref) => PocketPeersApi());
-final reminderServiceProvider = Provider<ReminderService>((ref) => ReminderService());
+final reminderServiceProvider =
+    Provider<ReminderService>((ref) => ReminderService());
 final remindersEnabledProvider = StateProvider<bool>((ref) => false);
 final onboardingCompletedProvider = FutureProvider<bool>((ref) {
   return ref.read(apiProvider).isOnboardingCompleted();
@@ -80,11 +81,13 @@ final groupProvider = FutureProvider.family<Group, int>((ref, groupId) {
   return ref.read(apiProvider).getGroup(groupId);
 });
 
-final groupMembersProvider = FutureProvider.family<List<GroupMember>, int>((ref, groupId) {
+final groupMembersProvider =
+    FutureProvider.family<List<GroupMember>, int>((ref, groupId) {
   return ref.read(apiProvider).getGroupMembers(groupId);
 });
 
-final groupExpensesProvider = FutureProvider.family<List<Expense>, int>((ref, groupId) {
+final groupExpensesProvider =
+    FutureProvider.family<List<Expense>, int>((ref, groupId) {
   return ref.read(apiProvider).getExpensesByGroup(groupId);
 });
 
@@ -92,31 +95,37 @@ final expenseProvider = FutureProvider.family<Expense, int>((ref, expenseId) {
   return ref.read(apiProvider).getExpense(expenseId);
 });
 
-final expensePaymentsProvider = FutureProvider.family<List<Payment>, int>((ref, expenseId) {
+final expensePaymentsProvider =
+    FutureProvider.family<List<Payment>, int>((ref, expenseId) {
   return ref.read(apiProvider).getPaymentsByExpense(expenseId);
 });
 
-final allGroupPaymentsProvider = FutureProvider.family<List<Payment>, int>((ref, groupId) async {
+final allGroupPaymentsProvider =
+    FutureProvider.family<List<Payment>, int>((ref, groupId) async {
   final expenses = await ref.watch(groupExpensesProvider(groupId).future);
   final payments = <Payment>[];
   for (final expense in expenses) {
-    payments.addAll(await ref.read(apiProvider).getPaymentsByExpense(expense.id));
+    payments
+        .addAll(await ref.read(apiProvider).getPaymentsByExpense(expense.id));
   }
   return payments;
 });
 
-final groupSummaryProvider = FutureProvider.family<GroupSummary, int>((ref, groupId) async {
+final groupSummaryProvider =
+    FutureProvider.family<GroupSummary, int>((ref, groupId) async {
   final members = await ref.watch(groupMembersProvider(groupId).future);
   final expenses = await ref.watch(groupExpensesProvider(groupId).future);
   final payments = await ref.watch(allGroupPaymentsProvider(groupId).future);
-  return summarizeGroup(members: members, expenses: expenses, payments: payments);
+  return summarizeGroup(
+      members: members, expenses: expenses, payments: payments);
 });
 
 final paymentProvider = FutureProvider.family<Payment, int>((ref, paymentId) {
   return ref.read(apiProvider).getPayment(paymentId);
 });
 
-final reputationProvider = FutureProvider.family<Reputation, int>((ref, userId) {
+final reputationProvider =
+    FutureProvider.family<Reputation, int>((ref, userId) {
   return ref.read(apiProvider).getReputation(userId);
 });
 
@@ -125,7 +134,8 @@ final reputationHistoryProvider =
   return ref.read(apiProvider).getReputationHistory(userId);
 });
 
-final badgesProvider = FutureProvider.family<List<PblBadge>, int>((ref, userId) {
+final badgesProvider =
+    FutureProvider.family<List<PblBadge>, int>((ref, userId) {
   return ref.read(apiProvider).getBadges(userId);
 });
 
@@ -141,7 +151,8 @@ final myBadgesProvider = FutureProvider<List<PblBadge>>((ref) async {
   return ref.read(apiProvider).getBadges(session.id);
 });
 
-final myReputationHistoryProvider = FutureProvider<List<ReputationEvent>>((ref) async {
+final myReputationHistoryProvider =
+    FutureProvider<List<ReputationEvent>>((ref) async {
   final session = ref.watch(authControllerProvider).valueOrNull;
   if (session == null) return const [];
   return ref.read(apiProvider).getReputationHistory(session.id);
@@ -157,8 +168,22 @@ final groupLeaderboardProvider =
       );
 });
 
+final overdueMembersProvider =
+    FutureProvider.family<List<OverdueMember>, int>((ref, groupId) {
+  return ref.read(apiProvider).getOverdueMembers(groupId);
+});
+
+final overdueMemberDebtsProvider = FutureProvider.family<
+    List<OverduePaymentDebt>, ({int groupId, int memberId})>((ref, args) {
+  return ref.read(apiProvider).getOverdueMemberDebts(
+        groupId: args.groupId,
+        memberId: args.memberId,
+      );
+});
+
 final publicMemberProfileProvider =
-    FutureProvider.family<PublicMemberProfile, ({int groupId, int memberId})>((ref, args) {
+    FutureProvider.family<PublicMemberProfile, ({int groupId, int memberId})>(
+        (ref, args) {
   return ref.read(apiProvider).getPublicMemberProfile(
         groupId: args.groupId,
         memberId: args.memberId,
@@ -196,6 +221,7 @@ void invalidateGroup(WidgetRef ref, int groupId) {
   ref.invalidate(allGroupPaymentsProvider(groupId));
   ref.invalidate(groupSummaryProvider(groupId));
   ref.invalidate(groupLeaderboardProvider(groupId));
+  ref.invalidate(overdueMembersProvider(groupId));
   ref.invalidate(dashboardSummaryProvider);
   ref.invalidate(myReputationProvider);
   ref.invalidate(myBadgesProvider);

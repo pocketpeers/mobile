@@ -4,6 +4,13 @@ import 'package:flutter/foundation.dart';
 
 import '../data/pocketpeers_api.dart';
 
+class NotificationsPermissionDeniedException implements Exception {
+  const NotificationsPermissionDeniedException();
+
+  @override
+  String toString() => 'Permiso de notificaciones denegado';
+}
+
 class ReminderService {
   ReminderService({FirebaseMessaging? messaging}) : _messaging = messaging;
 
@@ -15,7 +22,14 @@ class ReminderService {
     await Firebase.initializeApp();
     final messaging = _messaging ?? FirebaseMessaging.instance;
     _messaging = messaging;
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      throw const NotificationsPermissionDeniedException();
+    }
     await messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,

@@ -322,6 +322,101 @@ class PaymentReminder {
       );
 }
 
+class OverdueMember {
+  const OverdueMember({
+    required this.userId,
+    required this.fullName,
+    required this.photo,
+    required this.overdueAmount,
+    required this.maxDaysOverdue,
+    required this.overduePaymentsCount,
+    this.oldestDueDate,
+  });
+
+  final int userId;
+  final String fullName;
+  final String photo;
+  final double overdueAmount;
+  final DateTime? oldestDueDate;
+  final int maxDaysOverdue;
+  final int overduePaymentsCount;
+
+  factory OverdueMember.fromJson(Map<String, Object?> json) => OverdueMember(
+        userId: _toInt(json['userId']),
+        fullName: json['fullName']?.toString() ?? '',
+        photo: json['photo']?.toString() ?? '',
+        overdueAmount: _toDouble(json['overdueAmount']),
+        oldestDueDate: _toDate(json['oldestDueDate']),
+        maxDaysOverdue: _toInt(json['maxDaysOverdue']),
+        overduePaymentsCount: _toInt(json['overduePaymentsCount']),
+      );
+}
+
+class OverduePaymentDebt {
+  const OverduePaymentDebt({
+    required this.paymentId,
+    required this.expenseId,
+    required this.expenseName,
+    required this.groupName,
+    required this.amount,
+    required this.amountPaid,
+    required this.overdueAmount,
+    required this.daysOverdue,
+    required this.status,
+    required this.confirmed,
+    this.dueDate,
+  });
+
+  final int paymentId;
+  final int expenseId;
+  final String expenseName;
+  final String groupName;
+  final double amount;
+  final double amountPaid;
+  final double overdueAmount;
+  final DateTime? dueDate;
+  final int daysOverdue;
+  final String status;
+  final bool confirmed;
+
+  factory OverduePaymentDebt.fromJson(Map<String, Object?> json) =>
+      OverduePaymentDebt(
+        paymentId: _toInt(json['paymentId']),
+        expenseId: _toInt(json['expenseId']),
+        expenseName: json['expenseName']?.toString() ?? '',
+        groupName: json['groupName']?.toString() ?? '',
+        amount: _toDouble(json['amount']),
+        amountPaid: _toDouble(json['amountPaid']),
+        overdueAmount: _toDouble(json['overdueAmount']),
+        dueDate: _toDate(json['dueDate']),
+        daysOverdue: _toInt(json['daysOverdue']),
+        status: json['status']?.toString() ?? 'PENDING',
+        confirmed: json['confirmed'] == true,
+      );
+}
+
+class ManualOverdueReminder {
+  const ManualOverdueReminder({
+    required this.userId,
+    required this.pushRemindersCreated,
+    required this.emailSent,
+    required this.message,
+  });
+
+  final int userId;
+  final int pushRemindersCreated;
+  final bool emailSent;
+  final String message;
+
+  factory ManualOverdueReminder.fromJson(Map<String, Object?> json) =>
+      ManualOverdueReminder(
+        userId: _toInt(json['userId']),
+        pushRemindersCreated: _toInt(json['pushRemindersCreated']),
+        emailSent: json['emailSent'] == true,
+        message: json['message']?.toString() ?? '',
+      );
+}
+
 class Reputation {
   const Reputation({
     required this.userId,

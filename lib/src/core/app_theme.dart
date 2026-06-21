@@ -82,6 +82,12 @@ class AppTheme {
         backgroundColor: AppColors.green,
         foregroundColor: Colors.white,
       ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.navy,
+        contentTextStyle: const TextStyle(color: Colors.white),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
       iconTheme: const IconThemeData(color: AppColors.navy),
       listTileTheme: const ListTileThemeData(iconColor: AppColors.navy),
       inputDecorationTheme: InputDecorationTheme(
@@ -175,6 +181,12 @@ class AppTheme {
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: AppColors.lightGreen,
         foregroundColor: Colors.white,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF102F53),
+        contentTextStyle: const TextStyle(color: Colors.white),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       iconTheme: const IconThemeData(color: Colors.white70),
       listTileTheme: const ListTileThemeData(iconColor: Colors.white70),

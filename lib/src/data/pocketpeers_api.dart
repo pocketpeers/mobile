@@ -159,6 +159,32 @@ class PocketPeersApi {
     return Group.fromJson(response.data ?? {});
   }
 
+  Future<Group> updateGroup({
+    required int groupId,
+    required String name,
+    required String description,
+  }) async {
+    final response = await _dio.put<JsonMap>(
+      '/api/v1/groups/$groupId',
+      data: {
+        'name': name,
+        'description': description,
+      },
+    );
+    return Group.fromJson(response.data ?? {});
+  }
+
+  Future<Group> updateGroupImage({
+    required int groupId,
+    required String image,
+  }) async {
+    final response = await _dio.put<JsonMap>(
+      '/api/v1/groups/$groupId/image',
+      data: {'image': image},
+    );
+    return Group.fromJson(response.data ?? {});
+  }
+
   Future<String> generateInvitation(int groupId) async {
     final response =
         await _dio.post<String>('/api/v1/groups/$groupId/generate-invitation');
@@ -375,6 +401,32 @@ class PocketPeersApi {
 
   Future<void> markNotificationRead(int notificationId) async {
     await _dio.post<JsonMap>('/api/v1/notifications/$notificationId/read');
+  }
+
+  Future<List<OverdueMember>> getOverdueMembers(int groupId) async {
+    final response = await _dio
+        .get<List<dynamic>>('/api/v1/groups/$groupId/overdue-members');
+    return _list(response.data, OverdueMember.fromJson);
+  }
+
+  Future<List<OverduePaymentDebt>> getOverdueMemberDebts({
+    required int groupId,
+    required int memberId,
+  }) async {
+    final response = await _dio.get<List<dynamic>>(
+      '/api/v1/groups/$groupId/overdue-members/$memberId',
+    );
+    return _list(response.data, OverduePaymentDebt.fromJson);
+  }
+
+  Future<ManualOverdueReminder> sendManualOverdueReminder({
+    required int groupId,
+    required int memberId,
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/groups/$groupId/overdue-members/$memberId/reminder',
+    );
+    return ManualOverdueReminder.fromJson(response.data ?? {});
   }
 
   Future<void> registerDeviceToken({
