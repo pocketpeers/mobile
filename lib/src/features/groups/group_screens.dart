@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -314,21 +316,44 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 }
 
-class GroupDetailScreen extends ConsumerWidget {
+class GroupDetailScreen extends ConsumerStatefulWidget {
   const GroupDetailScreen({required this.groupId, super.key});
 
   final int groupId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final group = ref.watch(groupProvider(groupId));
-    final members = ref.watch(groupMembersProvider(groupId));
-    final expenses = ref.watch(groupExpensesProvider(groupId));
-    final summary = ref.watch(groupSummaryProvider(groupId));
-    final leaderboard = ref.watch(groupLeaderboardProvider(groupId));
-    final overdueMembers = ref.watch(overdueMembersProvider(groupId));
+  ConsumerState<GroupDetailScreen> createState() => _GroupDetailScreenState();
+}
+
+class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
+  static const _blockchainRefreshInterval = Duration(seconds: 3);
+  static const _maxBlockchainRefreshAttempts = 20;
+
+  Timer? _blockchainRefreshTimer;
+  var _blockchainRefreshLimitReached = false;
+  var _blockchainRefreshAttempts = 0;
+
+  @override
+  void dispose() {
+    _blockchainRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final group = ref.watch(groupProvider(widget.groupId));
+    final members = ref.watch(groupMembersProvider(widget.groupId));
+    final expenses = ref.watch(groupExpensesProvider(widget.groupId));
+    final allPayments = ref.watch(allGroupPaymentsProvider(widget.groupId));
+    final summary = ref.watch(groupSummaryProvider(widget.groupId));
+    final leaderboard = ref.watch(groupLeaderboardProvider(widget.groupId));
+    final overdueMembers = ref.watch(overdueMembersProvider(widget.groupId));
     final session = ref.watch(authControllerProvider).valueOrNull;
     final isAdmin = group.valueOrNull?.adminId == session?.id;
+    _syncBlockchainRefresh(
+      expenses: expenses.valueOrNull ?? const [],
+      payments: allPayments.valueOrNull ?? const [],
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -353,13 +378,14 @@ class GroupDetailScreen extends ConsumerWidget {
       ),
       floatingActionButton: isAdmin
           ? FloatingActionButton.extended(
-              onPressed: () => context.push('/groups/$groupId/expenses/new'),
+              onPressed: () =>
+                  context.push('/groups/${widget.groupId}/expenses/new'),
               icon: const Icon(Icons.add_card_outlined),
               label: const Text('Gasto'),
             )
           : null,
       body: RefreshIndicator(
-        onRefresh: () async => invalidateGroup(ref, groupId),
+        onRefresh: () async => invalidateGroup(ref, widget.groupId),
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -395,7 +421,7 @@ class GroupDetailScreen extends ConsumerWidget {
                   error: (error, stackTrace) =>
                       const Text('No se pudieron cargar los pagos vencidos'),
                   data: (items) => _OverdueMembersList(
-                    groupId: groupId,
+                    groupId: widget.groupId,
                     members: items,
                   ),
                 ),
@@ -409,7 +435,7 @@ class GroupDetailScreen extends ConsumerWidget {
                 error: (error, stackTrace) =>
                     const Text('No se pudo cargar el ranking'),
                 data: (items) =>
-                    _LeaderboardList(groupId: groupId, entries: items),
+                    _LeaderboardList(groupId: widget.groupId, entries: items),
               ),
             ),
             const SizedBox(height: 16),
@@ -434,7 +460,7 @@ class GroupDetailScreen extends ConsumerWidget {
                         subtitle: Text(member.role),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => context.push(
-                          '/groups/$groupId/members/${member.userId}',
+                          '/groups/${widget.groupId}/members/${member.userId}',
                         ),
                       ),
                   ],
@@ -507,7 +533,8 @@ class GroupDetailScreen extends ConsumerWidget {
   }
 
   Future<void> _showInvitation(BuildContext context, WidgetRef ref) async {
-    final token = await ref.read(apiProvider).generateInvitation(groupId);
+    final token =
+        await ref.read(apiProvider).generateInvitation(widget.groupId);
     if (!context.mounted) return;
     await showAppDialog<void>(
       context: context,
@@ -566,7 +593,7 @@ class GroupDetailScreen extends ConsumerWidget {
 
     try {
       await ref.read(apiProvider).cancelExpense(expense.id);
-      invalidateGroup(ref, groupId);
+      invalidateGroup(ref, widget.groupId);
       ref.invalidate(dashboardSummaryProvider);
       if (!context.mounted) return;
       showAchievementSnackBar(
@@ -581,6 +608,56 @@ class GroupDetailScreen extends ConsumerWidget {
         SnackBar(content: Text('No se pudo anular el gasto: $error')),
       );
     }
+  }
+
+  void _syncBlockchainRefresh({
+    required List<Expense> expenses,
+    required List<Payment> payments,
+  }) {
+    final hasPendingHashes =
+        expenses.any(_expenseHashPending) || payments.any(_paymentHashPending);
+    if (!hasPendingHashes) {
+      _stopBlockchainRefresh();
+      _blockchainRefreshLimitReached = false;
+      return;
+    }
+    if (_blockchainRefreshLimitReached) return;
+    if (_blockchainRefreshTimer != null) return;
+    _blockchainRefreshAttempts = 0;
+    _blockchainRefreshTimer = Timer.periodic(
+      _blockchainRefreshInterval,
+      (_) => _refreshPendingBlockchainHashes(),
+    );
+  }
+
+  bool _expenseHashPending(Expense expense) =>
+      expense.blockchainHash.trim().isEmpty;
+
+  bool _paymentHashPending(Payment payment) =>
+      payment.blockchainHash.trim().isEmpty;
+
+  void _refreshPendingBlockchainHashes() {
+    if (!mounted) return;
+    _blockchainRefreshAttempts++;
+    final expenses =
+        ref.read(groupExpensesProvider(widget.groupId)).valueOrNull ?? const [];
+    ref.invalidate(groupExpensesProvider(widget.groupId));
+    ref.invalidate(allGroupPaymentsProvider(widget.groupId));
+    ref.invalidate(groupSummaryProvider(widget.groupId));
+    for (final expense in expenses) {
+      ref.invalidate(expenseProvider(expense.id));
+      ref.invalidate(expensePaymentsProvider(expense.id));
+    }
+    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
+      _blockchainRefreshLimitReached = true;
+      _stopBlockchainRefresh();
+    }
+  }
+
+  void _stopBlockchainRefresh() {
+    _blockchainRefreshTimer?.cancel();
+    _blockchainRefreshTimer = null;
+    _blockchainRefreshAttempts = 0;
   }
 }
 
@@ -1212,7 +1289,7 @@ class _PublicProfileBadges extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Badges publicos',
+            Text('Badges desbloqueados',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             if (badges.isEmpty)

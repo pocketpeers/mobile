@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -648,13 +650,21 @@ class PaymentDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
+  static const _blockchainRefreshInterval = Duration(seconds: 3);
+  static const _maxBlockchainRefreshAttempts = 12;
+
   final _amount = TextEditingController();
   XFile? _evidence;
+  Timer? _blockchainRefreshTimer;
   var _saving = false;
   var _confirming = false;
+  var _forceBlockchainRefresh = false;
+  var _blockchainRefreshLimitReached = false;
+  var _blockchainRefreshAttempts = 0;
 
   @override
   void dispose() {
+    _blockchainRefreshTimer?.cancel();
     _amount.dispose();
     super.dispose();
   }
@@ -673,6 +683,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
         ),
         data: (item) {
           final expense = ref.watch(expenseProvider(item.expenseId));
+          _syncBlockchainRefresh(item);
           final expenseOwnerId = expense.valueOrNull?.userId;
           final isCompletedAndConfirmed = item.confirmed && item.remaining <= 0;
           final canRegisterPayment = session?.id == item.userId &&
@@ -855,7 +866,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
         showAchievementSnackBar(
           context,
           title: 'Pago confirmado',
-          message: 'La transaccion ya cuenta para el score',
+          message: 'La transacción ha sido confirmada',
           icon: Icons.verified_outlined,
         );
       }
@@ -868,12 +879,56 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     final currentPayment =
         payment ?? ref.read(paymentProvider(paymentId)).valueOrNull;
     ref.invalidate(paymentProvider(paymentId));
+    _startBlockchainRefresh(force: true);
     if (currentPayment == null) return;
     ref.invalidate(expenseProvider(currentPayment.expenseId));
     ref.invalidate(expensePaymentsProvider(currentPayment.expenseId));
     final expense =
         ref.read(expenseProvider(currentPayment.expenseId)).valueOrNull;
     if (expense != null) invalidateGroup(ref, expense.groupId);
+  }
+
+  void _syncBlockchainRefresh(Payment payment) {
+    if (payment.blockchainHash.trim().isEmpty) {
+      _startBlockchainRefresh();
+    } else if (!_forceBlockchainRefresh) {
+      _stopBlockchainRefresh();
+      _blockchainRefreshLimitReached = false;
+    }
+  }
+
+  void _startBlockchainRefresh({bool force = false}) {
+    _forceBlockchainRefresh = _forceBlockchainRefresh || force;
+    if (_blockchainRefreshLimitReached && !force) return;
+    if (force) _blockchainRefreshLimitReached = false;
+    if (_blockchainRefreshTimer != null) return;
+    _blockchainRefreshAttempts = 0;
+    _blockchainRefreshTimer = Timer.periodic(
+      _blockchainRefreshInterval,
+      (_) => _refreshBlockchainHash(),
+    );
+  }
+
+  void _refreshBlockchainHash() {
+    if (!mounted) return;
+    _blockchainRefreshAttempts++;
+    final payment = ref.read(paymentProvider(widget.paymentId)).valueOrNull;
+    ref.invalidate(paymentProvider(widget.paymentId));
+    if (payment != null) {
+      ref.invalidate(expenseProvider(payment.expenseId));
+      ref.invalidate(expensePaymentsProvider(payment.expenseId));
+    }
+    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
+      _blockchainRefreshLimitReached = true;
+      _stopBlockchainRefresh();
+    }
+  }
+
+  void _stopBlockchainRefresh() {
+    _blockchainRefreshTimer?.cancel();
+    _blockchainRefreshTimer = null;
+    _forceBlockchainRefresh = false;
+    _blockchainRefreshAttempts = 0;
   }
 }
 
@@ -971,8 +1026,18 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                             contentPadding: EdgeInsets.zero,
                             leading: const Icon(Icons.receipt_long_outlined),
                             title: Text(expense.name),
-                            subtitle:
+                            subtitle: Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
                                 Text('Vence ${formatDate(expense.dueDate)}'),
+                                BlockchainHashChip(
+                                  hash: expense.blockchainHash,
+                                  compact: true,
+                                ),
+                              ],
+                            ),
                             trailing: Text(formatCurrency(expense.amount)),
                           ),
                     ],
