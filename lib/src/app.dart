@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/app_motion.dart';
 import 'core/app_theme.dart';
+import 'core/badge_visuals.dart';
 import 'data/models.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
@@ -212,6 +213,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   StreamSubscription<RemoteMessage>? _openedSubscription;
   var _polling = false;
   final _shownReminderIds = <int>{};
+  int? _knownBadgeUserId;
+  Set<String>? _knownUnlockedBadgeCodes;
 
   @override
   void initState() {
@@ -342,6 +345,45 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<List<PblBadge>>>(myBadgesProvider, (_, next) {
+      final badges = next.valueOrNull;
+      if (badges == null) return;
+      final session = ref.read(authControllerProvider).valueOrNull;
+      if (session == null) {
+        _knownBadgeUserId = null;
+        _knownUnlockedBadgeCodes = null;
+        return;
+      }
+
+      final unlocked = badges.where((badge) => badge.unlocked).toList();
+      final unlockedCodes = unlocked.map((badge) => badge.code).toSet();
+      if (_knownBadgeUserId != session.id || _knownUnlockedBadgeCodes == null) {
+        _knownBadgeUserId = session.id;
+        _knownUnlockedBadgeCodes = unlockedCodes;
+        return;
+      }
+
+      final previousCodes = _knownUnlockedBadgeCodes!;
+      final newBadges = unlocked
+          .where((badge) => !previousCodes.contains(badge.code))
+          .toList();
+      _knownUnlockedBadgeCodes = unlockedCodes;
+      if (newBadges.isEmpty || !mounted) return;
+
+      for (var i = 0; i < newBadges.length; i++) {
+        final badge = newBadges[i];
+        Future.delayed(Duration(milliseconds: 380 * i), () {
+          if (!mounted) return;
+          showAchievementSnackBar(
+            context,
+            title: 'Badge desbloqueado',
+            message: badge.name,
+            icon: badgeIconForCode(badge.code),
+          );
+        });
+      }
+    });
+
     final location = GoRouterState.of(context).matchedLocation;
     final selected =
         AppShell._tabs.indexWhere((tab) => location.startsWith(tab.path));

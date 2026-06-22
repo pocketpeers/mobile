@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/badge_visuals.dart';
+import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
@@ -295,6 +296,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             groupPhoto: _groupPhoto,
           );
       ref.invalidate(groupsProvider);
+      ref.invalidate(myReputationProvider);
+      ref.invalidate(myBadgesProvider);
+      ref.invalidate(myReputationHistoryProvider);
       if (mounted) {
         showAchievementSnackBar(
           context,
@@ -454,9 +458,40 @@ class GroupDetailScreen extends ConsumerWidget {
                             ExpansionTile(
                               tilePadding: EdgeInsets.zero,
                               title: Text(expense.name),
-                              subtitle:
-                                  Text('Vence ${formatDate(expense.dueDate)}'),
-                              trailing: Text(formatCurrency(expense.amount)),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                        'Vence ${formatDate(expense.dueDate)}'),
+                                    BlockchainHashChip(
+                                      hash: expense.blockchainHash,
+                                      compact: true,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(formatCurrency(expense.amount)),
+                                  if (isAdmin) ...[
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      tooltip: 'Anular gasto',
+                                      onPressed: () => _confirmCancelExpense(
+                                        context,
+                                        ref,
+                                        expense,
+                                      ),
+                                      icon: const Icon(Icons.block_outlined),
+                                    ),
+                                  ],
+                                ],
+                              ),
                               children: [
                                 _ExpensePayments(expenseId: expense.id),
                               ],
@@ -500,6 +535,52 @@ class GroupDetailScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmCancelExpense(
+    BuildContext context,
+    WidgetRef ref,
+    Expense expense,
+  ) async {
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Anular gasto'),
+        content: Text(
+          '¿Estás seguro que deseas anular el gasto "${expense.name}"? Esto no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => context.pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            onPressed: () => context.pop(true),
+            icon: const Icon(Icons.block_outlined),
+            label: const Text('Anular'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(apiProvider).cancelExpense(expense.id);
+      invalidateGroup(ref, groupId);
+      ref.invalidate(dashboardSummaryProvider);
+      if (!context.mounted) return;
+      showAchievementSnackBar(
+        context,
+        title: 'Gasto anulado',
+        message: 'Ya no aparecera en los gastos activos',
+        icon: Icons.block_outlined,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo anular el gasto: $error')),
+      );
+    }
   }
 }
 
@@ -1137,17 +1218,24 @@ class _PublicProfileBadges extends StatelessWidget {
             if (badges.isEmpty)
               const _EmptyProfileState()
             else
-              GridView.count(
-                crossAxisCount: MediaQuery.sizeOf(context).width > 700 ? 4 : 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 1.05,
-                children: [
-                  for (final badge in badges)
-                    BadgeMedal(badge: badge, compact: true),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns =
+                      MediaQuery.sizeOf(context).width > 700 ? 4 : 2;
+                  final itemWidth =
+                      (constraints.maxWidth - (columns - 1) * 8) / columns;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final badge in badges)
+                        SizedBox(
+                          width: itemWidth,
+                          child: BadgeMedal(badge: badge, compact: true),
+                        ),
+                    ],
+                  );
+                },
               ),
           ],
         ),
@@ -1275,9 +1363,19 @@ class _ExpensePayments extends ConsumerWidget {
               leading:
                   Icon(Icons.arrow_forward, color: context.primaryIconColor),
               title: Text(payment.description),
-              subtitle: Text(payment.confirmed
-                  ? payment.status
-                  : '${payment.status} - sin confirmar'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(payment.confirmed
+                      ? payment.status
+                      : '${payment.status} - sin confirmar'),
+                  const SizedBox(height: 6),
+                  BlockchainHashChip(
+                    hash: payment.blockchainHash,
+                    compact: true,
+                  ),
+                ],
+              ),
               trailing: Text(formatCurrency(
                   payment.confirmed ? payment.remaining : payment.amount)),
               onTap: () => context.push('/payments/${payment.id}'),

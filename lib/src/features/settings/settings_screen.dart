@@ -71,7 +71,7 @@ class SettingsScreen extends ConsumerWidget {
                                       ?.copyWith(fontWeight: FontWeight.w900),
                                 ),
                                 Text(
-                                  'Cuenta activa',
+                                  item.username,
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 ),
                               ],
@@ -119,6 +119,7 @@ class SettingsScreen extends ConsumerWidget {
             Card(
               child: Column(
                 children: [
+                  /*
                   ListTile(
                     leading: Icon(Icons.group_add_outlined,
                         color: context.primaryIconColor),
@@ -130,6 +131,7 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
                   const Divider(height: 1),
+                  */
                   const _NotificationSettingsTile(),
                   const Divider(height: 1),
                   ListTile(
@@ -179,11 +181,12 @@ class _NotificationSettingsTileState
       children: [
         SwitchListTile(
           secondary: const Icon(Icons.notifications_active_outlined),
-          title: const Text('Recordatorios de pago'),
+          title: const Text('Recibir notificaciones'),
           //subtitle: const Text('Registra este dispositivo para FCM'),
           value: remindersEnabled,
           onChanged: _updating ? null : _setEnabled,
         ),
+/*
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Align(
@@ -200,6 +203,7 @@ class _NotificationSettingsTileState
             ),
           ),
         ),
+*/
       ],
     );
   }
@@ -217,12 +221,12 @@ class _NotificationSettingsTileState
           .registerDevice(ref.read(apiProvider));
       ref.read(remindersEnabledProvider.notifier).state = true;
       if (mounted) {
-        _showMessage('Dispositivo registrado: ${_shortToken(token)}');
+        //_showMessage('Dispositivo registrado: ${_shortToken(token)}');
       }
     } catch (error) {
       ref.read(remindersEnabledProvider.notifier).state = false;
       if (mounted) {
-        _showMessage('No se pudo activar FCM: $error');
+        _showMessage('No se pudo activar: $error');
       }
     } finally {
       if (mounted) setState(() => _updating = false);
@@ -493,18 +497,25 @@ class _BadgesCard extends StatelessWidget {
             if (badges.isEmpty)
               const Text('Aun no hay badges disponibles')
             else
-              GridView.count(
-                crossAxisCount: MediaQuery.sizeOf(context).width > 700 ? 4 : 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 1.15,
-                children: [
-                  for (var i = 0; i < badges.length; i++)
-                    AnimatedSection(
-                        index: i, child: _BadgeTile(badge: badges[i])),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns =
+                      MediaQuery.sizeOf(context).width > 700 ? 4 : 2;
+                  final itemWidth =
+                      (constraints.maxWidth - (columns - 1) * 8) / columns;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (var i = 0; i < badges.length; i++)
+                        SizedBox(
+                          width: itemWidth,
+                          child: AnimatedSection(
+                              index: i, child: _BadgeTile(badge: badges[i])),
+                        ),
+                    ],
+                  );
+                },
               ),
           ],
         ),

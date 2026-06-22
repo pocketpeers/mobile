@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
@@ -703,6 +704,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                               status: item.confirmed
                                   ? 'CONFIRMADO'
                                   : 'SIN CONFIRMAR'),
+                          BlockchainHashChip(hash: item.blockchainHash),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -1066,9 +1068,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                             child: const Icon(Icons.swap_horiz_outlined),
                           ),
                           title: Text(payment.description),
-                          subtitle: Text(payment.confirmed
-                              ? payment.status
-                              : '${payment.status} - sin confirmar'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(payment.confirmed
+                                  ? payment.status
+                                  : '${payment.status} - sin confirmar'),
+                              const SizedBox(height: 6),
+                              BlockchainHashChip(
+                                hash: payment.blockchainHash,
+                                compact: true,
+                              ),
+                            ],
+                          ),
                           trailing: Text(formatCurrency(
                               payment.confirmed ? payment.amountPaid : 0)),
                           onTap: () => context.push('/payments/${payment.id}'),

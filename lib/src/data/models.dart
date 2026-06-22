@@ -57,6 +57,7 @@ class AuthSession {
 class UserProfile {
   const UserProfile({
     required this.id,
+    required this.username,
     required this.fullName,
     required this.phoneNumber,
     required this.photo,
@@ -65,6 +66,7 @@ class UserProfile {
   });
 
   final int id;
+  final String username;
   final String fullName;
   final String phoneNumber;
   final String photo;
@@ -73,6 +75,7 @@ class UserProfile {
 
   factory UserProfile.fromJson(Map<String, Object?> json) => UserProfile(
         id: _toInt(json['id']),
+        username: json['username']?.toString() ?? '',
         fullName: json['fullName']?.toString() ?? '',
         phoneNumber: json['phoneNumber']?.toString() ?? '',
         photo: json['photo']?.toString() ?? '',
@@ -148,6 +151,8 @@ class Expense {
     required this.remainingAmount,
     required this.paidAmount,
     required this.status,
+    required this.active,
+    required this.blockchainHash,
     this.dueDate,
     this.createdAt,
     this.updatedAt,
@@ -162,8 +167,12 @@ class Expense {
   final double remainingAmount;
   final double paidAmount;
   final String status;
+  final int active;
+  final String blockchainHash;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  bool get isActive => active == 1;
 
   factory Expense.fromJson(Map<String, Object?> json) => Expense(
         id: _toInt(json['id']),
@@ -175,6 +184,8 @@ class Expense {
         remainingAmount: _toDouble(json['remainingAmount']),
         paidAmount: _toDouble(json['paidAmount']),
         status: json['status']?.toString() ?? 'PENDING',
+        active: _toInt(json['active'] ?? 1),
+        blockchainHash: json['blockchainHash']?.toString() ?? '',
         createdAt: _toDate(json['createdAt']),
         updatedAt: _toDate(json['updatedAt']),
       );
@@ -190,6 +201,7 @@ class Payment {
     required this.confirmed,
     required this.userId,
     required this.expenseId,
+    required this.blockchainHash,
     required this.evidencePhotos,
   });
 
@@ -201,6 +213,7 @@ class Payment {
   final bool confirmed;
   final int userId;
   final int expenseId;
+  final String blockchainHash;
   final List<String> evidencePhotos;
 
   double get remaining => max(0, amount - amountPaid);
@@ -214,6 +227,7 @@ class Payment {
         confirmed: json['confirmed'] == true,
         userId: _toInt(json['userId']),
         expenseId: _toInt(json['expenseId']),
+        blockchainHash: json['blockchainHash']?.toString() ?? '',
         evidencePhotos: ((json['evidencePhotos'] as List?) ?? const [])
             .map((item) => item.toString())
             .where((item) => item.trim().isNotEmpty)

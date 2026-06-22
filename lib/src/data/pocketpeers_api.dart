@@ -211,13 +211,17 @@ class PocketPeersApi {
   Future<List<Expense>> getExpensesByGroup(int groupId) async {
     final response =
         await _dio.get<List<dynamic>>('/api/v1/expenses/groupId/$groupId');
-    return _list(response.data, Expense.fromJson);
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
   }
 
   Future<List<Expense>> getExpensesByUser(int userId) async {
     final response =
         await _dio.get<List<dynamic>>('/api/v1/expenses/userId/$userId');
-    return _list(response.data, Expense.fromJson);
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
   }
 
   Future<List<Expense>> searchExpenses(String name) async {
@@ -225,7 +229,9 @@ class PocketPeersApi {
       '/api/v1/expenses/search',
       queryParameters: {'name': name},
     );
-    return _list(response.data, Expense.fromJson);
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
   }
 
   Future<Expense> getExpense(int expenseId) async {
@@ -283,6 +289,10 @@ class PocketPeersApi {
     return Expense.fromJson(
       Map<String, Object?>.from((body['expense'] as Map?) ?? const {}),
     );
+  }
+
+  Future<void> cancelExpense(int expenseId) async {
+    await _dio.delete<JsonMap>('/api/v1/expenses/$expenseId');
   }
 
   Future<Payment> createPayment({

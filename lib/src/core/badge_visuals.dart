@@ -91,6 +91,7 @@ class BadgeMedal extends StatelessWidget {
         border: Border.all(color: borderColor.withOpacity(unlocked ? 0.8 : 1)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment:
             compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
@@ -160,25 +161,19 @@ class BadgeMedal extends StatelessWidget {
           SizedBox(height: compact ? 16 : 18),
           Text(
             title,
-            maxLines: compact ? 2 : 1,
-            overflow: TextOverflow.ellipsis,
             textAlign: compact ? TextAlign.center : TextAlign.start,
             style: const TextStyle(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 4),
-          Expanded(
-            child: Text(
-              unlocked && badge.unlockedAt != null
-                  ? 'Desbloqueado'
-                  : description,
-              maxLines: compact ? 2 : 3,
-              overflow: TextOverflow.ellipsis,
-              textAlign: compact ? TextAlign.center : TextAlign.start,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: unlocked
-                        ? Theme.of(context).colorScheme.onSurface
-                        : lockedColor,
-                  ),
+          Text(
+            unlocked && badge.unlockedAt != null
+                ? 'Desbloqueado'
+                : description,
+            textAlign: compact ? TextAlign.center : TextAlign.start,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: unlocked
+                      ? Theme.of(context).colorScheme.onSurface
+                      : lockedColor,
             ),
           ),
         ],

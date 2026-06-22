@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
@@ -386,9 +387,19 @@ class _RecentTransactions extends StatelessWidget {
                     child: const Icon(Icons.receipt_long_outlined),
                   ),
                   title: Text(payment.description),
-                  subtitle: Text(payment.confirmed
-                      ? payment.status
-                      : '${payment.status} - sin confirmar'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(payment.confirmed
+                          ? payment.status
+                          : '${payment.status} - sin confirmar'),
+                      const SizedBox(height: 6),
+                      BlockchainHashChip(
+                        hash: payment.blockchainHash,
+                        compact: true,
+                      ),
+                    ],
+                  ),
                   trailing: Text(formatCurrency(
                       payment.confirmed ? payment.amountPaid : 0)),
                   onTap: () => context.push('/payments/${payment.id}'),
