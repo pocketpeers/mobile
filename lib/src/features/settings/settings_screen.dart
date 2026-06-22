@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/badge_visuals.dart';
 import '../../core/formatters.dart';
+import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
 import '../../data/models.dart';
@@ -21,139 +23,245 @@ class SettingsScreen extends ConsumerWidget {
     final reputation = ref.watch(myReputationProvider);
     final badges = ref.watch(myBadgesProvider);
     final session = ref.watch(authControllerProvider).valueOrNull;
-    final remindersEnabled = ref.watch(remindersEnabledProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: profile.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (error, stackTrace) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(session?.username ?? 'Usuario'),
-                    const Text('No se pudo cargar el perfil'),
-                  ],
-                ),
-                data: (item) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        RemoteAvatar(
-                          imageRef: item.photo,
-                          fallbackIcon: Icons.person_outline,
-                          size: 48,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.fullName,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w900),
-                              ),
-                              Text(item.email),
-                              Text(item.phoneNumber),
-                            ],
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(profileProvider);
+          ref.invalidate(myReputationProvider);
+          ref.invalidate(myBadgesProvider);
+          ref.invalidate(myReputationHistoryProvider);
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: profile.when(
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, stackTrace) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(session?.username ?? 'Usuario'),
+                      const Text('No se pudo cargar el perfil'),
+                    ],
+                  ),
+                  data: (item) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          RemoteAvatar(
+                            imageRef: item.photo,
+                            fallbackIcon: Icons.person_outline,
+                            size: 48,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: () => showDialog<void>(
-                          context: context,
-                          builder: (context) =>
-                              _EditProfileDialog(profile: item),
-                        ),
-                        icon: const Icon(Icons.edit_outlined),
-                        label: const Text('Editar perfil'),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.fullName,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w900),
+                                ),
+                                Text(
+                                  'Cuenta activa',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: () => showAppDialog<void>(
+                            context: context,
+                            builder: (context) =>
+                                _EditProfileDialog(profile: item),
+                          ),
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('Editar perfil'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          reputation.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (error, stackTrace) => const Card(
-              child: ListTile(title: Text('No se pudo cargar el score')),
+            const SizedBox(height: 16),
+            reputation.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (error, stackTrace) => const Card(
+                child: ListTile(title: Text('No se pudo cargar el score')),
+              ),
+              data: (item) => item == null
+                  ? const SizedBox.shrink()
+                  : _ReputationCard(reputation: item),
             ),
-            data: (item) => item == null
-                ? const SizedBox.shrink()
-                : _ReputationCard(reputation: item),
-          ),
-          const SizedBox(height: 16),
-          badges.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (error, stackTrace) => const Card(
-              child: ListTile(title: Text('No se pudieron cargar badges')),
+            const SizedBox(height: 16),
+            badges.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (error, stackTrace) => const Card(
+                child: ListTile(title: Text('No se pudieron cargar badges')),
+              ),
+              data: (items) => _BadgesCard(badges: items),
             ),
-            data: (items) => _BadgesCard(badges: items),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.group_add_outlined,
-                      color: AppColors.blue),
-                  title: const Text('Unirme a un grupo'),
-                  subtitle: const Text('Ingresa el codigo de invitacion'),
-                  onTap: () => showDialog<void>(
-                    context: context,
-                    builder: (context) => const JoinGroupDialog(),
+            const SizedBox(height: 16),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: Icon(Icons.group_add_outlined,
+                        color: context.primaryIconColor),
+                    title: const Text('Unirme a un grupo'),
+                    subtitle: const Text('Ingresa el codigo de invitacion'),
+                    onTap: () => showAppDialog<void>(
+                      context: context,
+                      builder: (context) => const JoinGroupDialog(),
+                    ),
                   ),
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.notifications_active_outlined),
-                  title: const Text('Recordatorios de pago'),
-                  subtitle: const Text(
-                      'Se calculan localmente desde las fechas limite'),
-                  value: remindersEnabled,
-                  onChanged: (value) async {
-                    ref.read(remindersEnabledProvider.notifier).state = value;
-                    if (value) {
-                      await ref.read(reminderServiceProvider).initialize();
-                    }
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading:
-                      const Icon(Icons.help_outline, color: AppColors.blue),
-                  title: const Text('Ayuda'),
-                  subtitle: const Text('Ver nuevamente el onboarding'),
-                  onTap: () => context.push('/onboarding'),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.logout, color: AppColors.green),
-                  title: const Text('Cerrar sesion'),
-                  onTap: () async {
-                    await ref.read(authControllerProvider.notifier).signOut();
-                    if (context.mounted) context.go('/auth');
-                  },
-                ),
-              ],
+                  const Divider(height: 1),
+                  const _NotificationSettingsTile(),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(Icons.help_outline,
+                        color: context.primaryIconColor),
+                    title: const Text('Ayuda'),
+                    subtitle: const Text('Ver nuevamente el onboarding'),
+                    onTap: () => context.push('/onboarding'),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading:
+                        Icon(Icons.logout, color: context.successIconColor),
+                    title: const Text('Cerrar sesion'),
+                    onTap: () async {
+                      await ref.read(authControllerProvider.notifier).signOut();
+                      if (context.mounted) context.go('/auth');
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationSettingsTile extends ConsumerStatefulWidget {
+  const _NotificationSettingsTile();
+
+  @override
+  ConsumerState<_NotificationSettingsTile> createState() =>
+      _NotificationSettingsTileState();
+}
+
+class _NotificationSettingsTileState
+    extends ConsumerState<_NotificationSettingsTile> {
+  var _updating = false;
+  var _testing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final remindersEnabled = ref.watch(remindersEnabledProvider);
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.notifications_active_outlined),
+          title: const Text('Recordatorios de pago'),
+          //subtitle: const Text('Registra este dispositivo para FCM'),
+          value: remindersEnabled,
+          onChanged: _updating ? null : _setEnabled,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: remindersEnabled && !_testing ? _sendTest : null,
+              icon: _testing
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.notification_add_outlined),
+              label: const Text('Enviar prueba'),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    if (!value) {
+      ref.read(remindersEnabledProvider.notifier).state = false;
+      return;
+    }
+
+    setState(() => _updating = true);
+    try {
+      final token = await ref
+          .read(reminderServiceProvider)
+          .registerDevice(ref.read(apiProvider));
+      ref.read(remindersEnabledProvider.notifier).state = true;
+      if (mounted) {
+        _showMessage('Dispositivo registrado: ${_shortToken(token)}');
+      }
+    } catch (error) {
+      ref.read(remindersEnabledProvider.notifier).state = false;
+      if (mounted) {
+        _showMessage('No se pudo activar FCM: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  Future<void> _sendTest() async {
+    setState(() => _testing = true);
+    try {
+      final result = await ref.read(apiProvider).sendTestNotification();
+      if (mounted) {
+        _showMessage(_formatTestResult(result));
+      }
+    } catch (error) {
+      if (mounted) {
+        _showMessage('No se pudo enviar la prueba: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  String _shortToken(String token) {
+    if (token.length <= 16) return token;
+    return '${token.substring(0, 8)}...${token.substring(token.length - 8)}';
+  }
+
+  String _formatTestResult(Map<String, Object?> result) {
+    final message = result['message']?.toString() ?? 'Prueba enviada';
+    final tokens = result['registeredDeviceTokens']?.toString();
+    final sent = result['sent']?.toString();
+    final failed = result['failed']?.toString();
+    if (tokens == null || sent == null || failed == null) return message;
+    return '$message. Tokens: $tokens, enviados: $sent, fallidos: $failed';
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 }
@@ -275,7 +383,7 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
   }
 
   Future<void> _pickPhoto() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
     final uploaded = await ref.read(apiProvider).uploadImage(image.path);
     setState(() => _photo = uploaded.imageId);
@@ -321,8 +429,8 @@ class _ReputationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.workspace_premium_outlined,
-                    color: AppColors.green),
+                Icon(Icons.workspace_premium_outlined,
+                    color: context.successIconColor),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text('Score de reputacion',
@@ -336,7 +444,13 @@ class _ReputationCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            LinearProgressIndicator(value: progress.clamp(0, 1).toDouble()),
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: progress.clamp(0, 1).toDouble()),
+              duration: AppMotion.slow,
+              curve: AppMotion.curve,
+              builder: (context, value, child) =>
+                  LinearProgressIndicator(value: value),
+            ),
             const SizedBox(height: 12),
             Text(reputation.level,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -385,54 +499,27 @@ class _BadgesCard extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 1.35,
+                childAspectRatio: 1.15,
                 children: [
-                  for (final badge in badges)
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: badge.unlocked
-                            ? AppColors.green.withOpacity(0.10)
-                            : Colors.grey.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: badge.unlocked
-                              ? AppColors.green
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            badge.unlocked
-                                ? Icons.verified_outlined
-                                : Icons.lock_outline,
-                            color:
-                                badge.unlocked ? AppColors.green : Colors.grey,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            badge.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          Text(
-                            badge.unlocked && badge.unlockedAt != null
-                                ? formatDate(badge.unlockedAt)
-                                : badge.description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
+                  for (var i = 0; i < badges.length; i++)
+                    AnimatedSection(
+                        index: i, child: _BadgeTile(badge: badges[i])),
                 ],
               ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _BadgeTile extends StatelessWidget {
+  const _BadgeTile({required this.badge});
+
+  final PblBadge badge;
+
+  @override
+  Widget build(BuildContext context) {
+    return BadgeMedal(badge: badge);
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/app_motion.dart';
 import '../../core/validators.dart';
 import '../../state/providers.dart';
 
@@ -60,7 +61,15 @@ class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
           );
       ref.invalidate(groupsProvider);
       invalidateGroup(ref, member.groupId);
-      if (mounted) context.pop();
+      if (mounted) {
+        showAchievementSnackBar(
+          context,
+          title: 'Te uniste al grupo',
+          message: 'Ya puedes ver sus gastos y pagos',
+          icon: Icons.group_add_outlined,
+        );
+        context.pop();
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
