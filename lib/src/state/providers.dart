@@ -121,6 +121,7 @@ final groupSummaryProvider =
 });
 
 final paymentProvider = FutureProvider.family<Payment, int>((ref, paymentId) {
+  ref.watch(authControllerProvider);
   return ref.read(apiProvider).getPayment(paymentId);
 });
 
