@@ -440,11 +440,20 @@ class _ReputationCard extends StatelessWidget {
                   child: Text('Score de reputacion',
                       style: Theme.of(context).textTheme.titleMedium),
                 ),
-                Text('${reputation.score}/100',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900)),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '${reputation.score}/100',
+                      maxLines: 1,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),

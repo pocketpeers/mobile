@@ -132,12 +132,16 @@ class _DashboardHeader extends StatelessWidget {
                 ),
                 duration: AppMotion.slow,
                 curve: AppMotion.curve,
-                builder: (context, value, child) => Text(
-                  value.round().toString(),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                      ),
+                builder: (context, value, child) => FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    value.round().toString(),
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
                 ),
               ),
             ),
