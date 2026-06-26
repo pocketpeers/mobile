@@ -1,18 +1,25 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/badge_visuals.dart';
+import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
+import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../dashboard/dashboard_screen.dart';
 import 'join_group_dialog.dart';
+
+const _groupDescriptionMaxLength = 100;
 
 class GroupsScreen extends ConsumerStatefulWidget {
   const GroupsScreen({super.key});
@@ -43,7 +50,7 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
         children: [
           FloatingActionButton.extended(
             heroTag: 'join-group',
-            onPressed: () => showDialog<void>(
+            onPressed: () => showAppDialog<void>(
               context: context,
               builder: (context) => const JoinGroupDialog(),
             ),
@@ -91,10 +98,20 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                     const SizedBox(width: 8),
                     IconButton.filled(
                       onPressed: _searching ? null : _runSearch,
+                      style: IconButton.styleFrom(
+                        backgroundColor: context.successIconColor,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor:
+                            context.successIconColor.withOpacity(0.42),
+                        disabledForegroundColor: Colors.white70,
+                      ),
                       icon: _searching
                           ? const SizedBox.square(
                               dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
                           : const Icon(Icons.search),
                     ),
@@ -114,26 +131,32 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                     child: ListTile(title: Text('No se encontraron grupos')),
                   )
                 else
-                  for (final group in visibleItems) ...[
-                    Card(
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
+                  for (var i = 0; i < visibleItems.length; i++) ...[
+                    AnimatedSection(
+                      index: i,
+                      child: Card(
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          leading: RemoteAvatar(
+                            imageRef: visibleItems[i].groupPhoto,
+                            fallbackIcon: Icons.group_outlined,
+                            size: 44,
+                          ),
+                          title: Text(
+                            visibleItems[i].name,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          subtitle: Text(visibleItems[i].description),
+                          trailing: Icon(
+                            Icons.chevron_right,
+                            color: context.successIconColor,
+                          ),
+                          onTap: () =>
+                              context.push('/groups/${visibleItems[i].id}'),
                         ),
-                        leading: RemoteAvatar(
-                          imageRef: group.groupPhoto,
-                          fallbackIcon: Icons.group_outlined,
-                          size: 44,
-                        ),
-                        title: Text(
-                          group.name,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        subtitle: Text(group.description),
-                        trailing: const Icon(Icons.chevron_right,
-                            color: AppColors.green),
-                        onTap: () => context.push('/groups/${group.id}'),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -202,6 +225,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               controller: _description,
               minLines: 3,
               maxLines: 5,
+              maxLength: _groupDescriptionMaxLength,
+              inputFormatters: [
+                LengthLimitingTextInputFormatter(_groupDescriptionMaxLength),
+              ],
               decoration: const InputDecoration(labelText: 'Descripcion'),
               validator: _groupDescription,
             ),
@@ -243,12 +270,16 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   String? _groupDescription(String? value) {
     final required = requiredField(value);
     if (required != null) return required;
-    if (value!.trim().length < 5) return 'Ingresa al menos 5 caracteres';
+    final description = value!.trim();
+    if (description.length < 5) return 'Ingresa al menos 5 caracteres';
+    if (description.length > _groupDescriptionMaxLength) {
+      return 'Ingresa maximo $_groupDescriptionMaxLength caracteres';
+    }
     return null;
   }
 
   Future<void> _pickGroupPhoto() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
     final uploaded = await ref.read(apiProvider).uploadImage(image.path);
     setState(() => _groupPhoto = uploaded.imageId);
@@ -267,32 +298,77 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             groupPhoto: _groupPhoto,
           );
       ref.invalidate(groupsProvider);
-      if (mounted) context.pop();
+      ref.invalidate(myReputationProvider);
+      ref.invalidate(myBadgesProvider);
+      ref.invalidate(myReputationHistoryProvider);
+      if (mounted) {
+        showAchievementSnackBar(
+          context,
+          title: 'Grupo creado',
+          message: 'Tu grupo ya esta listo para sumar integrantes',
+          icon: Icons.group_add_outlined,
+        );
+        context.pop();
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 }
 
-class GroupDetailScreen extends ConsumerWidget {
+class GroupDetailScreen extends ConsumerStatefulWidget {
   const GroupDetailScreen({required this.groupId, super.key});
 
   final int groupId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final group = ref.watch(groupProvider(groupId));
-    final members = ref.watch(groupMembersProvider(groupId));
-    final expenses = ref.watch(groupExpensesProvider(groupId));
-    final summary = ref.watch(groupSummaryProvider(groupId));
-    final leaderboard = ref.watch(groupLeaderboardProvider(groupId));
+  ConsumerState<GroupDetailScreen> createState() => _GroupDetailScreenState();
+}
+
+class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
+  static const _blockchainRefreshInterval = Duration(seconds: 3);
+  static const _maxBlockchainRefreshAttempts = 20;
+
+  Timer? _blockchainRefreshTimer;
+  var _blockchainRefreshLimitReached = false;
+  var _blockchainRefreshAttempts = 0;
+
+  @override
+  void dispose() {
+    _blockchainRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final group = ref.watch(groupProvider(widget.groupId));
+    final members = ref.watch(groupMembersProvider(widget.groupId));
+    final expenses = ref.watch(groupExpensesProvider(widget.groupId));
+    final allPayments = ref.watch(allGroupPaymentsProvider(widget.groupId));
+    final summary = ref.watch(groupSummaryProvider(widget.groupId));
+    final leaderboard = ref.watch(groupLeaderboardProvider(widget.groupId));
+    final overdueMembers = ref.watch(overdueMembersProvider(widget.groupId));
     final session = ref.watch(authControllerProvider).valueOrNull;
     final isAdmin = group.valueOrNull?.adminId == session?.id;
+    _syncBlockchainRefresh(
+      expenses: expenses.valueOrNull ?? const [],
+      payments: allPayments.valueOrNull ?? const [],
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: Text(group.valueOrNull?.name ?? 'Grupo'),
         actions: [
+          if (isAdmin && group.valueOrNull != null)
+            IconButton(
+              tooltip: 'Editar grupo',
+              onPressed: () => showAppDialog<void>(
+                context: context,
+                builder: (context) =>
+                    _EditGroupDialog(group: group.valueOrNull!),
+              ),
+              icon: const Icon(Icons.edit_outlined),
+            ),
           IconButton(
             tooltip: 'Invitacion',
             onPressed: () => _showInvitation(context, ref),
@@ -302,13 +378,14 @@ class GroupDetailScreen extends ConsumerWidget {
       ),
       floatingActionButton: isAdmin
           ? FloatingActionButton.extended(
-              onPressed: () => context.push('/groups/$groupId/expenses/new'),
+              onPressed: () =>
+                  context.push('/groups/${widget.groupId}/expenses/new'),
               icon: const Icon(Icons.add_card_outlined),
               label: const Text('Gasto'),
             )
           : null,
       body: RefreshIndicator(
-        onRefresh: () async => invalidateGroup(ref, groupId),
+        onRefresh: () async => invalidateGroup(ref, widget.groupId),
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -335,6 +412,21 @@ class GroupDetailScreen extends ConsumerWidget {
                   Text('No se pudo calcular el resumen: $error'),
               data: (item) => _GroupSummaryCard(summary: item),
             ),
+            if (isAdmin) ...[
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: 'Pagos vencidos',
+                child: overdueMembers.when(
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, stackTrace) =>
+                      const Text('No se pudieron cargar los pagos vencidos'),
+                  data: (items) => _OverdueMembersList(
+                    groupId: widget.groupId,
+                    members: items,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             _SectionCard(
               title: 'Ranking',
@@ -343,7 +435,7 @@ class GroupDetailScreen extends ConsumerWidget {
                 error: (error, stackTrace) =>
                     const Text('No se pudo cargar el ranking'),
                 data: (items) =>
-                    _LeaderboardList(groupId: groupId, entries: items),
+                    _LeaderboardList(groupId: widget.groupId, entries: items),
               ),
             ),
             const SizedBox(height: 16),
@@ -367,12 +459,8 @@ class GroupDetailScreen extends ConsumerWidget {
                         title: Text(member.fullName),
                         subtitle: Text(member.role),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => showDialog<void>(
-                          context: context,
-                          builder: (context) => _PublicMemberProfileDialog(
-                            groupId: groupId,
-                            memberId: member.userId,
-                          ),
+                        onTap: () => context.push(
+                          '/groups/${widget.groupId}/members/${member.userId}',
                         ),
                       ),
                   ],
@@ -396,9 +484,40 @@ class GroupDetailScreen extends ConsumerWidget {
                             ExpansionTile(
                               tilePadding: EdgeInsets.zero,
                               title: Text(expense.name),
-                              subtitle:
-                                  Text('Vence ${formatDate(expense.dueDate)}'),
-                              trailing: Text(formatCurrency(expense.amount)),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                        'Vence ${formatDate(expense.dueDate)}'),
+                                    BlockchainHashChip(
+                                      hash: expense.blockchainHash,
+                                      compact: true,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(formatCurrency(expense.amount)),
+                                  if (isAdmin) ...[
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      tooltip: 'Anular gasto',
+                                      onPressed: () => _confirmCancelExpense(
+                                        context,
+                                        ref,
+                                        expense,
+                                      ),
+                                      icon: const Icon(Icons.block_outlined),
+                                    ),
+                                  ],
+                                ],
+                              ),
                               children: [
                                 _ExpensePayments(expenseId: expense.id),
                               ],
@@ -414,9 +533,10 @@ class GroupDetailScreen extends ConsumerWidget {
   }
 
   Future<void> _showInvitation(BuildContext context, WidgetRef ref) async {
-    final token = await ref.read(apiProvider).generateInvitation(groupId);
+    final token =
+        await ref.read(apiProvider).generateInvitation(widget.groupId);
     if (!context.mounted) return;
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Codigo de invitacion'),
@@ -442,6 +562,403 @@ class GroupDetailScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmCancelExpense(
+    BuildContext context,
+    WidgetRef ref,
+    Expense expense,
+  ) async {
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Anular gasto'),
+        content: Text(
+          '¿Estás seguro que deseas anular el gasto "${expense.name}"? Esto no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => context.pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            onPressed: () => context.pop(true),
+            icon: const Icon(Icons.block_outlined),
+            label: const Text('Anular'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(apiProvider).cancelExpense(expense.id);
+      invalidateGroup(ref, widget.groupId);
+      ref.invalidate(dashboardSummaryProvider);
+      if (!context.mounted) return;
+      showAchievementSnackBar(
+        context,
+        title: 'Gasto anulado',
+        message: 'Ya no aparecera en los gastos activos',
+        icon: Icons.block_outlined,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo anular el gasto: $error')),
+      );
+    }
+  }
+
+  void _syncBlockchainRefresh({
+    required List<Expense> expenses,
+    required List<Payment> payments,
+  }) {
+    final hasPendingHashes =
+        expenses.any(_expenseHashPending) || payments.any(_paymentHashPending);
+    if (!hasPendingHashes) {
+      _stopBlockchainRefresh();
+      _blockchainRefreshLimitReached = false;
+      return;
+    }
+    if (_blockchainRefreshLimitReached) return;
+    if (_blockchainRefreshTimer != null) return;
+    _blockchainRefreshAttempts = 0;
+    _blockchainRefreshTimer = Timer.periodic(
+      _blockchainRefreshInterval,
+      (_) => _refreshPendingBlockchainHashes(),
+    );
+  }
+
+  bool _expenseHashPending(Expense expense) =>
+      expense.blockchainHash.trim().isEmpty;
+
+  bool _paymentHashPending(Payment payment) =>
+      payment.blockchainHash.trim().isEmpty;
+
+  void _refreshPendingBlockchainHashes() {
+    if (!mounted) return;
+    _blockchainRefreshAttempts++;
+    final expenses =
+        ref.read(groupExpensesProvider(widget.groupId)).valueOrNull ?? const [];
+    ref.invalidate(groupExpensesProvider(widget.groupId));
+    ref.invalidate(allGroupPaymentsProvider(widget.groupId));
+    ref.invalidate(groupSummaryProvider(widget.groupId));
+    for (final expense in expenses) {
+      ref.invalidate(expenseProvider(expense.id));
+      ref.invalidate(expensePaymentsProvider(expense.id));
+    }
+    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
+      _blockchainRefreshLimitReached = true;
+      _stopBlockchainRefresh();
+    }
+  }
+
+  void _stopBlockchainRefresh() {
+    _blockchainRefreshTimer?.cancel();
+    _blockchainRefreshTimer = null;
+    _blockchainRefreshAttempts = 0;
+  }
+}
+
+class _EditGroupDialog extends ConsumerStatefulWidget {
+  const _EditGroupDialog({required this.group});
+
+  final Group group;
+
+  @override
+  ConsumerState<_EditGroupDialog> createState() => _EditGroupDialogState();
+}
+
+class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _name;
+  late final TextEditingController _description;
+  late String _groupPhoto;
+  var _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.group.name);
+    _description = TextEditingController(text: widget.group.description);
+    _groupPhoto = widget.group.groupPhoto;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Editar grupo'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RemoteAvatar(
+                  imageRef: _groupPhoto,
+                  fallbackIcon: Icons.group_outlined,
+                  size: 72,
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _pickGroupPhoto,
+                  icon: const Icon(Icons.image_outlined),
+                  label: const Text('Actualizar foto'),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _name,
+                  decoration: const InputDecoration(labelText: 'Nombre'),
+                  validator: nameField,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _description,
+                  minLines: 3,
+                  maxLines: 5,
+                  maxLength: _groupDescriptionMaxLength,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(
+                      _groupDescriptionMaxLength,
+                    ),
+                  ],
+                  decoration: const InputDecoration(labelText: 'Descripcion'),
+                  validator: _groupDescription,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => context.pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_outlined),
+          label: const Text('Guardar'),
+        ),
+      ],
+    );
+  }
+
+  String? _groupDescription(String? value) {
+    final required = requiredField(value);
+    if (required != null) return required;
+    final description = value!.trim();
+    if (description.length < 5) return 'Ingresa al menos 5 caracteres';
+    if (description.length > _groupDescriptionMaxLength) {
+      return 'Ingresa maximo $_groupDescriptionMaxLength caracteres';
+    }
+    return null;
+  }
+
+  Future<void> _pickGroupPhoto() async {
+    final image = await pickImageFromCameraOrGallery(context);
+    if (image == null) return;
+    setState(() => _saving = true);
+    try {
+      final uploaded = await ref.read(apiProvider).uploadImage(image.path);
+      if (mounted) setState(() => _groupPhoto = uploaded.imageId);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(apiProvider).updateGroup(
+            groupId: widget.group.id,
+            name: _name.text.trim(),
+            description: _description.text.trim(),
+          );
+      if (_groupPhoto != widget.group.groupPhoto) {
+        await ref.read(apiProvider).updateGroupImage(
+              groupId: widget.group.id,
+              image: _groupPhoto,
+            );
+      }
+      invalidateGroup(ref, widget.group.id);
+      if (mounted) {
+        showAchievementSnackBar(
+          context,
+          title: 'Grupo actualizado',
+          message: 'Los cambios se guardaron correctamente',
+          icon: Icons.verified_outlined,
+        );
+        context.pop();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo actualizar el grupo: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+}
+
+class _OverdueMembersList extends StatelessWidget {
+  const _OverdueMembersList({required this.groupId, required this.members});
+
+  final int groupId;
+  final List<OverdueMember> members;
+
+  @override
+  Widget build(BuildContext context) {
+    if (members.isEmpty) {
+      return const ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.verified_outlined),
+        title: Text('Todos los miembros estan al dia'),
+      );
+    }
+
+    return Column(
+      children: [
+        for (final member in members)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: RemoteAvatar(
+              imageRef: member.photo,
+              fallbackIcon: Icons.person_outline,
+              size: 40,
+              borderRadius: 20,
+              backgroundColor: Colors.redAccent.withOpacity(0.12),
+              iconColor: Colors.redAccent,
+            ),
+            title: Text(member.fullName),
+            subtitle: Text(
+              'Vencio ${formatDate(member.oldestDueDate)} - ${member.maxDaysOverdue} dias de atraso',
+            ),
+            trailing: Text(formatCurrency(member.overdueAmount)),
+            onTap: () => showAppDialog<void>(
+              context: context,
+              builder: (context) => _OverdueMemberDebtsDialog(
+                groupId: groupId,
+                member: member,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _OverdueMemberDebtsDialog extends ConsumerStatefulWidget {
+  const _OverdueMemberDebtsDialog({
+    required this.groupId,
+    required this.member,
+  });
+
+  final int groupId;
+  final OverdueMember member;
+
+  @override
+  ConsumerState<_OverdueMemberDebtsDialog> createState() =>
+      _OverdueMemberDebtsDialogState();
+}
+
+class _OverdueMemberDebtsDialogState
+    extends ConsumerState<_OverdueMemberDebtsDialog> {
+  var _sending = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final debts = ref.watch(overdueMemberDebtsProvider(
+      (groupId: widget.groupId, memberId: widget.member.userId),
+    ));
+    return AlertDialog(
+      title: Text(widget.member.fullName),
+      content: SizedBox(
+        width: 460,
+        child: debts.when(
+          loading: () => const LinearProgressIndicator(),
+          error: (error, stackTrace) =>
+              const Text('No se pudo cargar el detalle de deuda'),
+          data: (items) => items.isEmpty
+              ? const Text('Todos los miembros estan al dia')
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final debt in items)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(debt.expenseName),
+                        subtitle: Text(
+                          'Debio pagarse ${formatDate(debt.dueDate)} - ${debt.daysOverdue} dias de atraso',
+                        ),
+                        trailing: Text(formatCurrency(debt.overdueAmount)),
+                      ),
+                  ],
+                ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _sending ? null : () => context.pop(),
+          child: const Text('Cerrar'),
+        ),
+        FilledButton.icon(
+          onPressed: _sending ? null : _sendReminder,
+          icon: _sending
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.notifications_active_outlined),
+          label: const Text('Enviar recordatorio'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _sendReminder() async {
+    setState(() => _sending = true);
+    try {
+      final result = await ref.read(apiProvider).sendManualOverdueReminder(
+            groupId: widget.groupId,
+            memberId: widget.member.userId,
+          );
+      ref.invalidate(overdueMembersProvider(widget.groupId));
+      ref.invalidate(overdueMemberDebtsProvider(
+        (groupId: widget.groupId, memberId: widget.member.userId),
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message)),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo enviar el recordatorio: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 }
 
@@ -487,7 +1004,13 @@ class _LeaderboardList extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        Text('${entry.score} pts'),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            '${entry.score} pts',
+                            maxLines: 1,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -507,10 +1030,11 @@ class _LeaderboardList extends StatelessWidget {
                   size: 44,
                   borderRadius: 22,
                   backgroundColor: entry.currentUser
-                      ? AppColors.green.withOpacity(0.18)
-                      : AppColors.mist,
-                  iconColor:
-                      entry.currentUser ? AppColors.green : AppColors.blue,
+                      ? context.successIconContainerColor
+                      : context.primaryIconContainerColor,
+                  iconColor: entry.currentUser
+                      ? context.successIconColor
+                      : context.primaryIconColor,
                 ),
                 Container(
                   padding:
@@ -542,20 +1066,15 @@ class _LeaderboardList extends StatelessWidget {
               children: [
                 Icon(
                   _trendIcon(entry.trend),
-                  color: _trendColor(entry.trend),
+                  color: _trendColor(context, entry.trend),
                   size: 18,
                 ),
                 const SizedBox(width: 6),
                 Text('${entry.score}'),
               ],
             ),
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (context) => _PublicMemberProfileDialog(
-                groupId: groupId,
-                memberId: entry.userId,
-              ),
-            ),
+            onTap: () =>
+                context.push('/groups/$groupId/members/${entry.userId}'),
           ),
       ],
     );
@@ -573,16 +1092,19 @@ class _LeaderboardList extends StatelessWidget {
     return Icons.remove;
   }
 
-  static Color _trendColor(String trend) {
-    if (trend == 'UP') return AppColors.green;
-    if (trend == 'DOWN') return Colors.red;
+  static Color _trendColor(BuildContext context, String trend) {
+    if (trend == 'UP') return context.successIconColor;
+    if (trend == 'DOWN') return Colors.redAccent;
     return Colors.grey;
   }
 }
 
-class _PublicMemberProfileDialog extends ConsumerWidget {
-  const _PublicMemberProfileDialog(
-      {required this.groupId, required this.memberId});
+class PublicMemberProfileScreen extends ConsumerWidget {
+  const PublicMemberProfileScreen({
+    required this.groupId,
+    required this.memberId,
+    super.key,
+  });
 
   final int groupId;
   final int memberId;
@@ -591,69 +1113,243 @@ class _PublicMemberProfileDialog extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(
         publicMemberProfileProvider((groupId: groupId, memberId: memberId)));
-    return AlertDialog(
-      title: const Text('Perfil publico'),
-      content: SizedBox(
-        width: 420,
-        child: profile.when(
-          loading: () => const LinearProgressIndicator(),
-          error: (error, stackTrace) =>
-              const Text('No se pudo cargar el perfil'),
-          data: (item) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  RemoteAvatar(
-                    imageRef: item.photo,
-                    fallbackIcon: Icons.person_outline,
-                    size: 44,
-                    borderRadius: 22,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(item.fullName,
-                            style: Theme.of(context).textTheme.titleMedium),
-                        Text(
-                            '${item.reputation.level} - ${item.reputation.score}/100'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(item.reputation.levelDescription),
-              const SizedBox(height: 12),
-              Text(
-                  'Pagos completados en grupo: ${item.completedPaymentsInGroup}'),
-              const SizedBox(height: 12),
-              Text('Badges publicos',
-                  style: Theme.of(context).textTheme.titleSmall),
-              if (item.badges.isEmpty)
-                const Text('Sin badges desbloqueados')
-              else
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final badge in item.badges)
-                      Chip(
-                        avatar: const Icon(Icons.verified_outlined, size: 18),
-                        label: Text(badge.name),
-                      ),
-                  ],
-                ),
-            ],
-          ),
+    return Scaffold(
+      appBar: AppBar(title: const Text('Perfil publico')),
+      body: profile.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stackTrace) => ErrorView(
+          title: 'No se pudo cargar el perfil',
+          onRetry: () => ref.invalidate(publicMemberProfileProvider(
+              (groupId: groupId, memberId: memberId))),
+        ),
+        data: (item) => ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            AnimatedSection(
+              child: _PublicProfileHeader(profile: item),
+            ),
+            const SizedBox(height: 16),
+            AnimatedSection(
+              index: 1,
+              child: _PublicProfileStats(profile: item),
+            ),
+            const SizedBox(height: 16),
+            AnimatedSection(
+              index: 2,
+              child: _PublicProfileBadges(badges: item.badges),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(onPressed: () => context.pop(), child: const Text('Cerrar')),
-      ],
+    );
+  }
+}
+
+class _PublicProfileHeader extends StatelessWidget {
+  const _PublicProfileHeader({required this.profile});
+
+  final PublicMemberProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (profile.reputation.score / 100).clamp(0, 1).toDouble();
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: context.isDarkMode
+              ? const [AppColors.darkSurface, Color(0xFF102F53)]
+              : const [AppColors.navy, AppColors.blue],
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          RemoteAvatar(
+            imageRef: profile.photo,
+            fallbackIcon: Icons.person_outline,
+            size: 82,
+            borderRadius: 41,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  profile.fullName,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  profile.reputation.level,
+                  style: TextStyle(color: Colors.white.withOpacity(0.82)),
+                ),
+                const SizedBox(height: 12),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: progress),
+                  duration: AppMotion.slow,
+                  curve: AppMotion.curve,
+                  builder: (context, value, child) => LinearProgressIndicator(
+                    value: value,
+                    color: AppColors.lightGreen,
+                    backgroundColor: Colors.white.withOpacity(0.18),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: AppColors.green.withOpacity(0.24),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '${profile.reputation.score}',
+                  maxLines: 1,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PublicProfileStats extends StatelessWidget {
+  const _PublicProfileStats({required this.profile});
+
+  final PublicMemberProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Resumen', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Text(profile.reputation.levelDescription),
+            const SizedBox(height: 16),
+            GridView.count(
+              crossAxisCount: MediaQuery.sizeOf(context).width > 700 ? 4 : 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 1.65,
+              children: [
+                MetricCard(
+                  label: 'Score',
+                  value: '${profile.reputation.score}/100',
+                  icon: Icons.trending_up_outlined,
+                ),
+                MetricCard(
+                  label: 'Nivel',
+                  value: profile.reputation.level,
+                  icon: Icons.workspace_premium_outlined,
+                ),
+                MetricCard(
+                  label: 'Pagos en grupo',
+                  value: '${profile.completedPaymentsInGroup}',
+                  icon: Icons.verified_outlined,
+                ),
+                MetricCard(
+                  label: 'Badges',
+                  value: '${profile.badges.length}',
+                  icon: Icons.emoji_events_outlined,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PublicProfileBadges extends StatelessWidget {
+  const _PublicProfileBadges({required this.badges});
+
+  final List<PblBadge> badges;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Badges desbloqueados',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            if (badges.isEmpty)
+              const _EmptyProfileState()
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns =
+                      MediaQuery.sizeOf(context).width > 700 ? 4 : 2;
+                  final itemWidth =
+                      (constraints.maxWidth - (columns - 1) * 8) / columns;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final badge in badges)
+                        SizedBox(
+                          width: itemWidth,
+                          child: BadgeMedal(badge: badge, compact: true),
+                        ),
+                    ],
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyProfileState extends StatelessWidget {
+  const _EmptyProfileState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.primaryIconContainerColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.emoji_events_outlined, color: context.primaryIconColor),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('Aun no tiene badges publicos')),
+        ],
+      ),
     );
   }
 }
@@ -694,12 +1390,12 @@ class _GroupSummaryCard extends StatelessWidget {
                   PieChartSectionData(
                     value: summary.totalPaid,
                     title: 'Pagado',
-                    color: AppColors.green,
+                    color: context.successIconColor,
                   ),
                   PieChartSectionData(
                     value: summary.totalPending,
                     title: 'Pendiente',
-                    color: AppColors.blue,
+                    color: context.primaryIconColor,
                   ),
                 ],
               ),
@@ -718,11 +1414,11 @@ class _GroupSummaryCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: AppColors.green.withOpacity(0.10),
+                  color: context.successIconContainerColor,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child:
-                    const Icon(Icons.payments_outlined, color: AppColors.green),
+                child: Icon(Icons.payments_outlined,
+                    color: context.successIconColor),
               ),
               title: Text(debt.name),
               subtitle: const Text('Debe al grupo'),
@@ -751,11 +1447,22 @@ class _ExpensePayments extends ConsumerWidget {
           for (final payment in items)
             ListTile(
               contentPadding: const EdgeInsets.only(left: 16),
-              leading: const Icon(Icons.arrow_forward, color: AppColors.blue),
+              leading:
+                  Icon(Icons.arrow_forward, color: context.primaryIconColor),
               title: Text(payment.description),
-              subtitle: Text(payment.confirmed
-                  ? payment.status
-                  : '${payment.status} - sin confirmar'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(payment.confirmed
+                      ? payment.status
+                      : '${payment.status} - sin confirmar'),
+                  const SizedBox(height: 6),
+                  BlockchainHashChip(
+                    hash: payment.blockchainHash,
+                    compact: true,
+                  ),
+                ],
+              ),
               trailing: Text(formatCurrency(
                   payment.confirmed ? payment.remaining : payment.amount)),
               onTap: () => context.push('/payments/${payment.id}'),

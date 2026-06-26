@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../core/config.dart';
 import 'models.dart';
@@ -30,17 +29,6 @@ class PocketPeersApi {
           }
           handler.next(options);
         },
-      ),
-    );
-    _dio.interceptors.add(
-      PrettyDioLogger(
-        requestHeader: true,
-        requestBody: true,
-        responseBody: true,
-        responseHeader: false,
-        error: true,
-        compact: true,
-        maxWidth: 90,
       ),
     );
   }
@@ -171,6 +159,32 @@ class PocketPeersApi {
     return Group.fromJson(response.data ?? {});
   }
 
+  Future<Group> updateGroup({
+    required int groupId,
+    required String name,
+    required String description,
+  }) async {
+    final response = await _dio.put<JsonMap>(
+      '/api/v1/groups/$groupId',
+      data: {
+        'name': name,
+        'description': description,
+      },
+    );
+    return Group.fromJson(response.data ?? {});
+  }
+
+  Future<Group> updateGroupImage({
+    required int groupId,
+    required String image,
+  }) async {
+    final response = await _dio.put<JsonMap>(
+      '/api/v1/groups/$groupId/image',
+      data: {'image': image},
+    );
+    return Group.fromJson(response.data ?? {});
+  }
+
   Future<String> generateInvitation(int groupId) async {
     final response =
         await _dio.post<String>('/api/v1/groups/$groupId/generate-invitation');
@@ -197,13 +211,17 @@ class PocketPeersApi {
   Future<List<Expense>> getExpensesByGroup(int groupId) async {
     final response =
         await _dio.get<List<dynamic>>('/api/v1/expenses/groupId/$groupId');
-    return _list(response.data, Expense.fromJson);
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
   }
 
   Future<List<Expense>> getExpensesByUser(int userId) async {
     final response =
         await _dio.get<List<dynamic>>('/api/v1/expenses/userId/$userId');
-    return _list(response.data, Expense.fromJson);
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
   }
 
   Future<List<Expense>> searchExpenses(String name) async {
@@ -211,7 +229,9 @@ class PocketPeersApi {
       '/api/v1/expenses/search',
       queryParameters: {'name': name},
     );
-    return _list(response.data, Expense.fromJson);
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
   }
 
   Future<Expense> getExpense(int expenseId) async {
@@ -269,6 +289,10 @@ class PocketPeersApi {
     return Expense.fromJson(
       Map<String, Object?>.from((body['expense'] as Map?) ?? const {}),
     );
+  }
+
+  Future<void> cancelExpense(int expenseId) async {
+    await _dio.delete<JsonMap>('/api/v1/expenses/$expenseId');
   }
 
   Future<Payment> createPayment({
@@ -377,6 +401,63 @@ class PocketPeersApi {
       ),
     );
     return ReceiptOcr.fromJson(response.data ?? {});
+  }
+
+  Future<List<PaymentReminder>> getUnreadNotifications() async {
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/notifications/unread');
+    return _list(response.data, PaymentReminder.fromJson);
+  }
+
+  Future<void> markNotificationRead(int notificationId) async {
+    await _dio.post<JsonMap>('/api/v1/notifications/$notificationId/read');
+  }
+
+  Future<List<OverdueMember>> getOverdueMembers(int groupId) async {
+    final response = await _dio
+        .get<List<dynamic>>('/api/v1/groups/$groupId/overdue-members');
+    return _list(response.data, OverdueMember.fromJson);
+  }
+
+  Future<List<OverduePaymentDebt>> getOverdueMemberDebts({
+    required int groupId,
+    required int memberId,
+  }) async {
+    final response = await _dio.get<List<dynamic>>(
+      '/api/v1/groups/$groupId/overdue-members/$memberId',
+    );
+    return _list(response.data, OverduePaymentDebt.fromJson);
+  }
+
+  Future<ManualOverdueReminder> sendManualOverdueReminder({
+    required int groupId,
+    required int memberId,
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/groups/$groupId/overdue-members/$memberId/reminder',
+    );
+    return ManualOverdueReminder.fromJson(response.data ?? {});
+  }
+
+  Future<void> registerDeviceToken({
+    required String token,
+    required String platform,
+  }) async {
+    await _dio.post<JsonMap>(
+      '/api/v1/notifications/device-tokens',
+      data: {'token': token, 'platform': platform},
+    );
+  }
+
+  Future<JsonMap> sendTestNotification({
+    String title = 'PocketPeers test',
+    String body = 'Testing notifications from the mobile app',
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/notifications/test',
+      data: {'title': title, 'body': body},
+    );
+    return response.data ?? {};
   }
 
   Future<Reputation> getReputation(int userId) async {

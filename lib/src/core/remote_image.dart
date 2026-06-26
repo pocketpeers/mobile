@@ -28,12 +28,12 @@ class RemoteAvatar extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: backgroundColor ?? AppColors.blue.withOpacity(0.10),
+        color: backgroundColor ?? context.primaryIconContainerColor,
         borderRadius: BorderRadius.circular(borderRadius),
       ),
       child: Icon(
         fallbackIcon,
-        color: iconColor ?? AppColors.blue,
+        color: iconColor ?? context.primaryIconColor,
         size: size * 0.48,
       ),
     );

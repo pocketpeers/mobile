@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
@@ -32,15 +34,34 @@ class DashboardScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _DashboardHeader(summary: data, reputation: reputation.valueOrNull),
+            AnimatedSection(
+              child: _DashboardHeader(
+                summary: data,
+                reputation: reputation.valueOrNull,
+              ),
+            ),
             const SizedBox(height: 16),
-            _MetricGrid(summary: data, reputation: reputation.valueOrNull),
+            AnimatedSection(
+              index: 1,
+              child: _MetricGrid(
+                summary: data,
+                reputation: reputation.valueOrNull,
+              ),
+            ),
             const SizedBox(height: 16),
-            _ReputationHistoryCard(events: history.valueOrNull ?? const []),
+            AnimatedSection(
+              index: 2,
+              child: _ReputationHistoryCard(
+                events: history.valueOrNull ?? const [],
+              ),
+            ),
             const SizedBox(height: 16),
-            _MonthlyChart(summary: data),
+            AnimatedSection(index: 3, child: _MonthlyChart(summary: data)),
             const SizedBox(height: 16),
-            _RecentTransactions(payments: data.recentPayments),
+            AnimatedSection(
+              index: 4,
+              child: _RecentTransactions(payments: data.recentPayments),
+            ),
           ],
         ),
       ),
@@ -104,12 +125,24 @@ class _DashboardHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Center(
-              child: Text(
-                '${reputation?.score ?? summary.score}',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(
+                  begin: 0,
+                  end: (reputation?.score ?? summary.score).toDouble(),
+                ),
+                duration: AppMotion.slow,
+                curve: AppMotion.curve,
+                builder: (context, value, child) => FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    value.round().toString(),
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -189,12 +222,18 @@ class _ReputationHistoryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Evolucion del score', style: Theme.of(context).textTheme.titleMedium),
+            Text('Evolucion del score',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
             SizedBox(
               height: 160,
               child: chartEvents.isEmpty
-                  ? const Center(child: Text('Tu score se construira con tus primeras transacciones'))
+                  ? const _DashboardEmptyState(
+                      icon: Icons.trending_up_outlined,
+                      title: 'Sin evolucion todavia',
+                      message:
+                          'Tu score se construira con tus primeras transacciones.',
+                    )
                   : LineChart(
                       LineChartData(
                         borderData: FlBorderData(show: false),
@@ -207,9 +246,10 @@ class _ReputationHistoryCard extends StatelessWidget {
                           LineChartBarData(
                             spots: [
                               for (var i = 0; i < chartEvents.length; i++)
-                                FlSpot(i.toDouble(), chartEvents[i].resultingScore.toDouble()),
+                                FlSpot(i.toDouble(),
+                                    chartEvents[i].resultingScore.toDouble()),
                             ],
-                            color: AppColors.green,
+                            color: context.successIconColor,
                             barWidth: 3,
                             dotData: const FlDotData(show: true),
                           ),
@@ -224,11 +264,18 @@ class _ReputationHistoryCard extends StatelessWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
-                    event.pointsDelta >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
-                    color: event.pointsDelta >= 0 ? AppColors.green : Colors.red,
+                    event.pointsDelta >= 0
+                        ? Icons.arrow_upward
+                        : Icons.arrow_downward,
+                    color: event.pointsDelta >= 0
+                        ? context.successIconColor
+                        : Colors.redAccent,
                   ),
-                  title: Text(event.description.isEmpty ? event.type : event.description),
-                  trailing: Text('${event.pointsDelta >= 0 ? '+' : ''}${event.pointsDelta}'),
+                  title: Text(event.description.isEmpty
+                      ? event.type
+                      : event.description),
+                  trailing: Text(
+                      '${event.pointsDelta >= 0 ? '+' : ''}${event.pointsDelta}'),
                 ),
             ],
           ],
@@ -253,49 +300,58 @@ class _MonthlyChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Gastos mensuales', style: Theme.of(context).textTheme.titleMedium),
+            Text('Gastos mensuales',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
-            SizedBox(
-              height: 220,
-              child: entries.isEmpty
-                  ? const Center(child: Text('Sin gastos registrados'))
-                  : BarChart(
-                      BarChartData(
-                        borderData: FlBorderData(show: false),
-                        gridData: const FlGridData(show: false),
-                        titlesData: FlTitlesData(
-                          topTitles: const AxisTitles(),
-                          rightTitles: const AxisTitles(),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              getTitlesWidget: (value, meta) {
-                                final index = value.toInt();
-                                if (index < 0 || index >= entries.length) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Text(entries[index].key.substring(5));
-                              },
-                            ),
-                          ),
+            if (entries.isEmpty)
+              const _DashboardEmptyState(
+                icon: Icons.bar_chart_outlined,
+                title: 'Sin gastos registrados',
+                message:
+                    'Cuando crees gastos, aqui veras la actividad mensual.',
+              )
+            else
+              SizedBox(
+                height: 220,
+                child: BarChart(
+                  BarChartData(
+                    borderData: FlBorderData(show: false),
+                    gridData: const FlGridData(show: false),
+                    titlesData: FlTitlesData(
+                      topTitles: const AxisTitles(),
+                      rightTitles: const AxisTitles(),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          getTitlesWidget: (value, meta) {
+                            final index = value.toInt();
+                            if (index < 0 || index >= entries.length) {
+                              return const SizedBox.shrink();
+                            }
+                            return Text(entries[index].key.substring(5));
+                          },
                         ),
-                        barGroups: [
-                          for (var i = 0; i < entries.length; i++)
-                            BarChartGroupData(
-                              x: i,
-                              barRods: [
-                                BarChartRodData(
-                                  toY: entries[i].value,
-                                  color: i.isEven ? AppColors.blue : AppColors.green,
-                                  width: 18,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ],
-                            ),
-                        ],
                       ),
                     ),
-            ),
+                    barGroups: [
+                      for (var i = 0; i < entries.length; i++)
+                        BarChartGroupData(
+                          x: i,
+                          barRods: [
+                            BarChartRodData(
+                              toY: entries[i].value,
+                              color: i.isEven
+                                  ? context.primaryIconColor
+                                  : context.successIconColor,
+                              width: 18,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -316,26 +372,87 @@ class _RecentTransactions extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Transacciones recientes', style: Theme.of(context).textTheme.titleMedium),
+            Text('Transacciones recientes',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             if (payments.isEmpty)
-              const ListTile(title: Text('Sin transacciones'))
+              const _DashboardEmptyState(
+                icon: Icons.swap_horiz_outlined,
+                title: 'Sin transacciones',
+                message: 'Tus pagos y cobros recientes apareceran aqui.',
+              )
             else
               for (final payment in payments)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
-                    backgroundColor: AppColors.mist,
-                    foregroundColor: AppColors.blue,
-                    child: Icon(Icons.receipt_long_outlined),
+                  leading: CircleAvatar(
+                    backgroundColor: context.primaryIconContainerColor,
+                    foregroundColor: context.primaryIconColor,
+                    child: const Icon(Icons.receipt_long_outlined),
                   ),
                   title: Text(payment.description),
-                  subtitle: Text(payment.confirmed ? payment.status : '${payment.status} - sin confirmar'),
-                  trailing: Text(formatCurrency(payment.confirmed ? payment.amountPaid : 0)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(payment.confirmed
+                          ? payment.status
+                          : '${payment.status} - sin confirmar'),
+                      const SizedBox(height: 6),
+                      BlockchainHashChip(
+                        hash: payment.blockchainHash,
+                        compact: true,
+                      ),
+                    ],
+                  ),
+                  trailing: Text(formatCurrency(
+                      payment.confirmed ? payment.amountPaid : 0)),
                   onTap: () => context.push('/payments/${payment.id}'),
                 ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DashboardEmptyState extends StatelessWidget {
+  const _DashboardEmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.primaryIconContainerColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.primaryIconColor.withOpacity(0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PulseIcon(icon: icon, color: context.primaryIconColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text(message),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -366,17 +483,14 @@ class MetricCard extends StatelessWidget {
             Row(
               children: [
                 if (icon != null)
-                  Container(
+                  SizedBox(
                     width: 32,
                     height: 32,
-                    decoration: BoxDecoration(
-                      color: AppColors.green.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      icon,
-                      color: isDark ? AppColors.lightGreen : AppColors.green,
-                      size: 18,
+                    child: FittedBox(
+                      child: PulseIcon(
+                        icon: icon!,
+                        color: context.successIconColor,
+                      ),
                     ),
                   ),
                 if (icon != null) const SizedBox(width: 8),

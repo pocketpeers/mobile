@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -5,8 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
+import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
 import '../../data/calculations.dart';
@@ -30,7 +35,6 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   final _amount = TextEditingController();
   final _customAmounts = <int, TextEditingController>{};
   final _selectedMemberIds = <int>{};
-  final _receiptPicker = ImagePicker();
   var _splitMode = SplitMode.equal;
   var _dueDate = DateTime.now().add(const Duration(days: 7));
   var _saving = false;
@@ -91,7 +95,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             const SizedBox(height: 12),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.event_outlined, color: AppColors.blue),
+              leading:
+                  Icon(Icons.event_outlined, color: context.primaryIconColor),
               title: const Text('Fecha limite'),
               subtitle: Text(inputDateFormatter.format(_dueDate)),
               trailing: const Icon(Icons.edit_calendar_outlined),
@@ -185,7 +190,7 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   }
 
   Future<void> _scanReceipt() async {
-    final image = await _receiptPicker.pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
     setState(() => _scanningReceipt = true);
     var uploadedImageId = '';
@@ -308,7 +313,15 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
           );
       await _attachReceiptToExpense(expense, amount);
       invalidateGroup(ref, widget.groupId);
-      if (mounted) context.pop();
+      if (mounted) {
+        showAchievementSnackBar(
+          context,
+          title: 'Gasto creado',
+          message: 'Se generaron los pagos para el grupo',
+          icon: Icons.receipt_long_outlined,
+        );
+        context.pop();
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -637,14 +650,21 @@ class PaymentDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
+  static const _blockchainRefreshInterval = Duration(seconds: 3);
+  static const _maxBlockchainRefreshAttempts = 12;
+
   final _amount = TextEditingController();
-  final _picker = ImagePicker();
   XFile? _evidence;
+  Timer? _blockchainRefreshTimer;
   var _saving = false;
   var _confirming = false;
+  var _forceBlockchainRefresh = false;
+  var _blockchainRefreshLimitReached = false;
+  var _blockchainRefreshAttempts = 0;
 
   @override
   void dispose() {
+    _blockchainRefreshTimer?.cancel();
     _amount.dispose();
     super.dispose();
   }
@@ -663,6 +683,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
         ),
         data: (item) {
           final expense = ref.watch(expenseProvider(item.expenseId));
+          _syncBlockchainRefresh(item);
           final expenseOwnerId = expense.valueOrNull?.userId;
           final isCompletedAndConfirmed = item.confirmed && item.remaining <= 0;
           final canRegisterPayment = session?.id == item.userId &&
@@ -694,6 +715,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                               status: item.confirmed
                                   ? 'CONFIRMADO'
                                   : 'SIN CONFIRMAR'),
+                          BlockchainHashChip(hash: item.blockchainHash),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -780,7 +802,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   }
 
   Future<void> _pickEvidence() async {
-    final image = await _picker.pickImage(source: ImageSource.gallery);
+    final image = await pickImageFromCameraOrGallery(context);
     if (image != null) setState(() => _evidence = image);
   }
 
@@ -819,8 +841,11 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
       ref.invalidate(myReputationHistoryProvider);
       _amount.clear();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Abono registrado')),
+        showAchievementSnackBar(
+          context,
+          title: 'Abono registrado',
+          message: 'Tu progreso de pago fue actualizado',
+          icon: Icons.payments_outlined,
         );
       }
     } finally {
@@ -838,8 +863,11 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
       ref.invalidate(myBadgesProvider);
       ref.invalidate(myReputationHistoryProvider);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pago confirmado')),
+        showAchievementSnackBar(
+          context,
+          title: 'Pago confirmado',
+          message: 'La transacción ha sido confirmada',
+          icon: Icons.verified_outlined,
         );
       }
     } finally {
@@ -851,12 +879,56 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     final currentPayment =
         payment ?? ref.read(paymentProvider(paymentId)).valueOrNull;
     ref.invalidate(paymentProvider(paymentId));
+    _startBlockchainRefresh(force: true);
     if (currentPayment == null) return;
     ref.invalidate(expenseProvider(currentPayment.expenseId));
     ref.invalidate(expensePaymentsProvider(currentPayment.expenseId));
     final expense =
         ref.read(expenseProvider(currentPayment.expenseId)).valueOrNull;
     if (expense != null) invalidateGroup(ref, expense.groupId);
+  }
+
+  void _syncBlockchainRefresh(Payment payment) {
+    if (payment.blockchainHash.trim().isEmpty) {
+      _startBlockchainRefresh();
+    } else if (!_forceBlockchainRefresh) {
+      _stopBlockchainRefresh();
+      _blockchainRefreshLimitReached = false;
+    }
+  }
+
+  void _startBlockchainRefresh({bool force = false}) {
+    _forceBlockchainRefresh = _forceBlockchainRefresh || force;
+    if (_blockchainRefreshLimitReached && !force) return;
+    if (force) _blockchainRefreshLimitReached = false;
+    if (_blockchainRefreshTimer != null) return;
+    _blockchainRefreshAttempts = 0;
+    _blockchainRefreshTimer = Timer.periodic(
+      _blockchainRefreshInterval,
+      (_) => _refreshBlockchainHash(),
+    );
+  }
+
+  void _refreshBlockchainHash() {
+    if (!mounted) return;
+    _blockchainRefreshAttempts++;
+    final payment = ref.read(paymentProvider(widget.paymentId)).valueOrNull;
+    ref.invalidate(paymentProvider(widget.paymentId));
+    if (payment != null) {
+      ref.invalidate(expenseProvider(payment.expenseId));
+      ref.invalidate(expensePaymentsProvider(payment.expenseId));
+    }
+    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
+      _blockchainRefreshLimitReached = true;
+      _stopBlockchainRefresh();
+    }
+  }
+
+  void _stopBlockchainRefresh() {
+    _blockchainRefreshTimer?.cancel();
+    _blockchainRefreshTimer = null;
+    _forceBlockchainRefresh = false;
+    _blockchainRefreshAttempts = 0;
   }
 }
 
@@ -916,11 +988,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         const SizedBox(width: 8),
                         IconButton.filled(
                           onPressed: _searching ? null : _searchExpenses,
+                          style: IconButton.styleFrom(
+                            backgroundColor: context.successIconColor,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                context.successIconColor.withOpacity(0.42),
+                            disabledForegroundColor: Colors.white70,
+                          ),
                           icon: _searching
                               ? const SizedBox.square(
                                   dimension: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
                                 )
                               : const Icon(Icons.search),
                         ),
@@ -945,8 +1026,18 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                             contentPadding: EdgeInsets.zero,
                             leading: const Icon(Icons.receipt_long_outlined),
                             title: Text(expense.name),
-                            subtitle:
+                            subtitle: Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
                                 Text('Vence ${formatDate(expense.dueDate)}'),
+                                BlockchainHashChip(
+                                  hash: expense.blockchainHash,
+                                  compact: true,
+                                ),
+                              ],
+                            ),
                             trailing: Text(formatCurrency(expense.amount)),
                           ),
                     ],
@@ -982,25 +1073,33 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     Text('Distribucion',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 16),
-                    SizedBox(
-                      height: 220,
-                      child: PieChart(
-                        PieChartData(
-                          sections: [
-                            PieChartSectionData(
-                              value: summary.totalPaid,
-                              title: 'Pagado',
-                              color: AppColors.green,
-                            ),
-                            PieChartSectionData(
-                              value: summary.totalPending,
-                              title: 'Pendiente',
-                              color: AppColors.blue,
-                            ),
-                          ],
+                    if (summary.totalPaid + summary.totalPending <= 0)
+                      const _ReportEmptyState(
+                        icon: Icons.pie_chart_outline,
+                        title: 'Sin distribucion todavia',
+                        message:
+                            'Cuando registres gastos y pagos, este grafico mostrara la distribucion.',
+                      )
+                    else
+                      SizedBox(
+                        height: 220,
+                        child: PieChart(
+                          PieChartData(
+                            sections: [
+                              PieChartSectionData(
+                                value: summary.totalPaid,
+                                title: 'Pagado',
+                                color: context.successIconColor,
+                              ),
+                              PieChartSectionData(
+                                value: summary.totalPending,
+                                title: 'Pendiente',
+                                color: context.primaryIconColor,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -1014,22 +1113,43 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   children: [
                     Text('Transacciones',
                         style: Theme.of(context).textTheme.titleMedium),
-                    for (final payment in summary.recentPayments)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const CircleAvatar(
-                          backgroundColor: AppColors.mist,
-                          foregroundColor: AppColors.green,
-                          child: Icon(Icons.swap_horiz_outlined),
+                    if (summary.recentPayments.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: _ReportEmptyState(
+                          icon: Icons.swap_horiz_outlined,
+                          title: 'Sin transacciones',
+                          message:
+                              'Tus pagos y cobros recientes apareceran aqui.',
                         ),
-                        title: Text(payment.description),
-                        subtitle: Text(payment.confirmed
-                            ? payment.status
-                            : '${payment.status} - sin confirmar'),
-                        trailing: Text(formatCurrency(
-                            payment.confirmed ? payment.amountPaid : 0)),
-                        onTap: () => context.push('/payments/${payment.id}'),
-                      ),
+                      )
+                    else
+                      for (final payment in summary.recentPayments)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: context.successIconContainerColor,
+                            foregroundColor: context.successIconColor,
+                            child: const Icon(Icons.swap_horiz_outlined),
+                          ),
+                          title: Text(payment.description),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(payment.confirmed
+                                  ? payment.status
+                                  : '${payment.status} - sin confirmar'),
+                              const SizedBox(height: 6),
+                              BlockchainHashChip(
+                                hash: payment.blockchainHash,
+                                compact: true,
+                              ),
+                            ],
+                          ),
+                          trailing: Text(formatCurrency(
+                              payment.confirmed ? payment.amountPaid : 0)),
+                          onTap: () => context.push('/payments/${payment.id}'),
+                        ),
                   ],
                 ),
               ),
@@ -1082,6 +1202,49 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
+class _ReportEmptyState extends StatelessWidget {
+  const _ReportEmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.primaryIconContainerColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.primaryIconColor.withOpacity(0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PulseIcon(icon: icon, color: context.primaryIconColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text(message),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PaymentRows extends StatelessWidget {
   const _PaymentRows({required this.payment});
 
@@ -1121,7 +1284,7 @@ class _PaymentEvidenceGrid extends StatelessWidget {
         if (url == null) return const SizedBox.shrink();
         return InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => showDialog<void>(
+          onTap: () => showAppDialog<void>(
             context: context,
             builder: (context) => Dialog(
               child: ClipRRect(

@@ -57,6 +57,7 @@ class AuthSession {
 class UserProfile {
   const UserProfile({
     required this.id,
+    required this.username,
     required this.fullName,
     required this.phoneNumber,
     required this.photo,
@@ -65,6 +66,7 @@ class UserProfile {
   });
 
   final int id;
+  final String username;
   final String fullName;
   final String phoneNumber;
   final String photo;
@@ -73,6 +75,7 @@ class UserProfile {
 
   factory UserProfile.fromJson(Map<String, Object?> json) => UserProfile(
         id: _toInt(json['id']),
+        username: json['username']?.toString() ?? '',
         fullName: json['fullName']?.toString() ?? '',
         phoneNumber: json['phoneNumber']?.toString() ?? '',
         photo: json['photo']?.toString() ?? '',
@@ -148,6 +151,8 @@ class Expense {
     required this.remainingAmount,
     required this.paidAmount,
     required this.status,
+    required this.active,
+    required this.blockchainHash,
     this.dueDate,
     this.createdAt,
     this.updatedAt,
@@ -162,8 +167,12 @@ class Expense {
   final double remainingAmount;
   final double paidAmount;
   final String status;
+  final int active;
+  final String blockchainHash;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  bool get isActive => active == 1;
 
   factory Expense.fromJson(Map<String, Object?> json) => Expense(
         id: _toInt(json['id']),
@@ -175,6 +184,8 @@ class Expense {
         remainingAmount: _toDouble(json['remainingAmount']),
         paidAmount: _toDouble(json['paidAmount']),
         status: json['status']?.toString() ?? 'PENDING',
+        active: _toInt(json['active'] ?? 1),
+        blockchainHash: json['blockchainHash']?.toString() ?? '',
         createdAt: _toDate(json['createdAt']),
         updatedAt: _toDate(json['updatedAt']),
       );
@@ -190,6 +201,7 @@ class Payment {
     required this.confirmed,
     required this.userId,
     required this.expenseId,
+    required this.blockchainHash,
     required this.evidencePhotos,
   });
 
@@ -201,6 +213,7 @@ class Payment {
   final bool confirmed;
   final int userId;
   final int expenseId;
+  final String blockchainHash;
   final List<String> evidencePhotos;
 
   double get remaining => max(0, amount - amountPaid);
@@ -214,6 +227,7 @@ class Payment {
         confirmed: json['confirmed'] == true,
         userId: _toInt(json['userId']),
         expenseId: _toInt(json['expenseId']),
+        blockchainHash: json['blockchainHash']?.toString() ?? '',
         evidencePhotos: ((json['evidencePhotos'] as List?) ?? const [])
             .map((item) => item.toString())
             .where((item) => item.trim().isNotEmpty)
@@ -283,6 +297,138 @@ class ImageUpload {
 
   factory ImageUpload.fromJson(Map<String, Object?> json) =>
       ImageUpload(json['imageId']?.toString() ?? '');
+}
+
+class PaymentReminder {
+  const PaymentReminder({
+    required this.id,
+    required this.paymentId,
+    required this.expenseId,
+    required this.groupId,
+    required this.groupName,
+    required this.type,
+    required this.title,
+    required this.body,
+    this.createdAt,
+  });
+
+  final int id;
+  final int paymentId;
+  final int expenseId;
+  final int groupId;
+  final String groupName;
+  final String type;
+  final String title;
+  final String body;
+  final DateTime? createdAt;
+
+  factory PaymentReminder.fromJson(Map<String, Object?> json) =>
+      PaymentReminder(
+        id: _toInt(json['id']),
+        paymentId: _toInt(json['paymentId']),
+        expenseId: _toInt(json['expenseId']),
+        groupId: _toInt(json['groupId']),
+        groupName: json['groupName']?.toString() ?? '',
+        type: json['type']?.toString() ?? '',
+        title: json['title']?.toString() ?? 'Recordatorio de pago',
+        body: json['body']?.toString() ?? '',
+        createdAt: _toDate(json['createdAt']),
+      );
+}
+
+class OverdueMember {
+  const OverdueMember({
+    required this.userId,
+    required this.fullName,
+    required this.photo,
+    required this.overdueAmount,
+    required this.maxDaysOverdue,
+    required this.overduePaymentsCount,
+    this.oldestDueDate,
+  });
+
+  final int userId;
+  final String fullName;
+  final String photo;
+  final double overdueAmount;
+  final DateTime? oldestDueDate;
+  final int maxDaysOverdue;
+  final int overduePaymentsCount;
+
+  factory OverdueMember.fromJson(Map<String, Object?> json) => OverdueMember(
+        userId: _toInt(json['userId']),
+        fullName: json['fullName']?.toString() ?? '',
+        photo: json['photo']?.toString() ?? '',
+        overdueAmount: _toDouble(json['overdueAmount']),
+        oldestDueDate: _toDate(json['oldestDueDate']),
+        maxDaysOverdue: _toInt(json['maxDaysOverdue']),
+        overduePaymentsCount: _toInt(json['overduePaymentsCount']),
+      );
+}
+
+class OverduePaymentDebt {
+  const OverduePaymentDebt({
+    required this.paymentId,
+    required this.expenseId,
+    required this.expenseName,
+    required this.groupName,
+    required this.amount,
+    required this.amountPaid,
+    required this.overdueAmount,
+    required this.daysOverdue,
+    required this.status,
+    required this.confirmed,
+    this.dueDate,
+  });
+
+  final int paymentId;
+  final int expenseId;
+  final String expenseName;
+  final String groupName;
+  final double amount;
+  final double amountPaid;
+  final double overdueAmount;
+  final DateTime? dueDate;
+  final int daysOverdue;
+  final String status;
+  final bool confirmed;
+
+  factory OverduePaymentDebt.fromJson(Map<String, Object?> json) =>
+      OverduePaymentDebt(
+        paymentId: _toInt(json['paymentId']),
+        expenseId: _toInt(json['expenseId']),
+        expenseName: json['expenseName']?.toString() ?? '',
+        groupName: json['groupName']?.toString() ?? '',
+        amount: _toDouble(json['amount']),
+        amountPaid: _toDouble(json['amountPaid']),
+        overdueAmount: _toDouble(json['overdueAmount']),
+        dueDate: _toDate(json['dueDate']),
+        daysOverdue: _toInt(json['daysOverdue']),
+        status: json['status']?.toString() ?? 'PENDING',
+        confirmed: json['confirmed'] == true,
+      );
+}
+
+class ManualOverdueReminder {
+  const ManualOverdueReminder({
+    required this.userId,
+    required this.pushRemindersCreated,
+    required this.emailSent,
+    required this.message,
+  });
+
+  final int userId;
+  final int pushRemindersCreated;
+  final bool emailSent;
+  final String message;
+
+  factory ManualOverdueReminder.fromJson(Map<String, Object?> json) =>
+      ManualOverdueReminder(
+        userId: _toInt(json['userId']),
+        pushRemindersCreated: _toInt(json['pushRemindersCreated']),
+        emailSent: json['emailSent'] == true,
+        message: json['message']?.toString() ?? '',
+      );
 }
 
 class Reputation {
