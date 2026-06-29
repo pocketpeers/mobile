@@ -20,6 +20,8 @@ class AuthController extends AsyncNotifier<AuthSession?> {
   PocketPeersApi get _api => ref.read(apiProvider);
 
   @override
+  // Session restoration is the source used by routing, API calls and screen
+  // providers to decide whether user-scoped data can be loaded.
   Future<AuthSession?> build() => _api.restoreSession();
 
   Future<void> signIn(String username, String password) async {
@@ -102,6 +104,8 @@ final expensePaymentsProvider =
 
 final allGroupPaymentsProvider =
     FutureProvider.family<List<Payment>, int>((ref, groupId) async {
+  // Payments are exposed by expense in the backend, so this provider composes
+  // all expense-level requests into one group-level view for summaries.
   final expenses = await ref.watch(groupExpensesProvider(groupId).future);
   final payments = <Payment>[];
   for (final expense in expenses) {
@@ -204,6 +208,8 @@ final dashboardSummaryProvider = FutureProvider<DashboardSummary>((ref) async {
       recentPayments: [],
     );
   }
+  // Dashboard data mixes outgoing debts with incoming collections, so all
+  // three datasets are fetched before applying local presentation calculations.
   final expenses = await ref.read(apiProvider).getExpensesByUser(session.id);
   final outgoing = await ref.read(apiProvider).getPaymentsByUser(session.id);
   final incoming = await ref.read(apiProvider).getIncomingPayments(session.id);
@@ -215,6 +221,8 @@ final dashboardSummaryProvider = FutureProvider<DashboardSummary>((ref) async {
 });
 
 void invalidateGroup(WidgetRef ref, int groupId) {
+  // Group mutations affect expenses, payments, rankings and dashboard totals.
+  // Invalidating this bundle keeps screens consistent after one write action.
   ref.invalidate(groupsProvider);
   ref.invalidate(groupProvider(groupId));
   ref.invalidate(groupMembersProvider(groupId));

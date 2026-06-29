@@ -23,6 +23,8 @@ class PocketPeersApi {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          // Every backend endpoint after login expects the JWT in this header.
+          // The interceptor keeps individual API methods focused on payloads.
           final token = await _storage.read(key: StorageKeys.authToken);
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -211,6 +213,8 @@ class PocketPeersApi {
   Future<List<Expense>> getExpensesByGroup(int groupId) async {
     final response =
         await _dio.get<List<dynamic>>('/api/v1/expenses/groupId/$groupId');
+    // Cancelled expenses may still exist in the backend for audit purposes, but
+    // the mobile app treats active expenses as the default working set.
     return _list(response.data, Expense.fromJson)
         .where((expense) => expense.isActive)
         .toList();
@@ -267,6 +271,9 @@ class PocketPeersApi {
     required DateTime dueDate,
     required List<SplitDraft> splits,
   }) async {
+    // This endpoint creates the expense and its member payment obligations in a
+    // single backend transaction, which keeps the split UI from doing partial
+    // writes if one member payment fails.
     final response = await _dio.post<JsonMap>(
       '/api/v1/expenses/with-payments',
       data: {
@@ -392,6 +399,8 @@ class PocketPeersApi {
   }
 
   Future<ReceiptOcr> ocrFromImage(String imageId) async {
+    // OCR can take longer than normal JSON requests because the backend calls
+    // the OCR service and waits for receipt extraction.
     final response = await _dio.post<JsonMap>(
       '/api/v1/ocr-receipt/from-image',
       data: {'imageId': imageId},
@@ -507,6 +516,8 @@ List<T> _list<T>(
   List<dynamic>? json,
   T Function(Map<String, Object?> json) builder,
 ) {
+  // Dio returns decoded dynamic JSON. This helper narrows list items to maps so
+  // model factories receive a predictable shape.
   return (json ?? const [])
       .whereType<Map>()
       .map((item) => builder(Map<String, Object?>.from(item)))
