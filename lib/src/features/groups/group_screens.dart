@@ -614,6 +614,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     required List<Expense> expenses,
     required List<Payment> payments,
   }) {
+    // Expense and payment hashes arrive after backend blockchain sync. The group
+    // screen polls briefly so users see hashes without manually refreshing.
     final hasPendingHashes =
         expenses.any(_expenseHashPending) || payments.any(_paymentHashPending);
     if (!hasPendingHashes) {
@@ -971,6 +973,8 @@ class _LeaderboardList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (entries.isEmpty) return const Text('Sin integrantes para mostrar');
+    // The backend returns the canonical order; the UI only highlights the top
+    // three and links each row to the member's public PBL profile.
     final podium = entries.take(3).toList();
     return Column(
       children: [
@@ -1111,6 +1115,8 @@ class PublicMemberProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // The public profile intentionally uses the PBL endpoint instead of loading
+    // private user settings, so group members only see shareable reputation data.
     final profile = ref.watch(
         publicMemberProfileProvider((groupId: groupId, memberId: memberId)));
     return Scaffold(

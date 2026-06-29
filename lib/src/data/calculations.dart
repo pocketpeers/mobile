@@ -7,6 +7,8 @@ List<SplitDraft> equalSplit({
   required List<GroupMember> members,
 }) {
   if (members.isEmpty) return const [];
+  // Round each share to cents and put the rounding remainder on the last member
+  // so the split always totals exactly the original expense amount.
   final share = double.parse((amount / members.length).toStringAsFixed(2));
   final drafts = <SplitDraft>[];
   var assigned = 0.0;
@@ -36,6 +38,8 @@ GroupSummary summarizeGroup({
   required List<Expense> expenses,
   required List<Payment> payments,
 }) {
+  // Local summaries mirror backend business rules: only active expenses and
+  // confirmed payment amounts contribute to paid totals.
   expenses = expenses.where((expense) => expense.isActive).toList();
   final totalExpenses =
       expenses.fold<double>(0, (sum, item) => sum + item.amount);
@@ -80,6 +84,8 @@ DashboardSummary summarizeDashboard({
   required List<Payment> outgoingPayments,
   required List<Payment> incomingPayments,
 }) {
+  // Balance is a personal cash-flow view: incoming pending collections minus
+  // outgoing pending obligations.
   expenses = expenses.where((expense) => expense.isActive).toList();
   final totalExpenses =
       expenses.fold<double>(0, (sum, item) => sum + item.amount);

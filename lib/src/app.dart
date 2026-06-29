@@ -41,6 +41,9 @@ final _routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: initialLocation,
     redirect: (context, state) {
+      // Route access is driven by the restored auth session and onboarding
+      // flag. Keeping this logic centralized avoids duplicated guards in every
+      // screen.
       final isSplashRoute = state.matchedLocation == '/splash';
       final isAuthRoute = state.matchedLocation == '/auth';
       final isOnboardingRoute = state.matchedLocation == '/onboarding';
@@ -241,6 +244,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
 
+    // Device-token registration is tied to an authenticated session because the
+    // backend stores tokens per user.
     final reminderService = ref.read(reminderServiceProvider);
     final api = ref.read(apiProvider);
     try {
@@ -309,6 +314,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
 
+    // Polling is a fallback for devices without an active FCM delivery path.
+    // The shown-id set prevents the same unread reminder from opening twice.
     _polling = true;
     try {
       final reminders = await ref.read(apiProvider).getUnreadNotifications();
@@ -346,6 +353,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     ref.listen<AsyncValue<List<PblBadge>>>(myBadgesProvider, (_, next) {
+      // The first badge snapshot establishes the baseline. Only later changes
+      // trigger achievement snackbars, so users are not spammed after login.
       final badges = next.valueOrNull;
       if (badges == null) return;
       final session = ref.read(authControllerProvider).valueOrNull;

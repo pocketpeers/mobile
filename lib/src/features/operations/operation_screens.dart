@@ -195,6 +195,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     setState(() => _scanningReceipt = true);
     var uploadedImageId = '';
     try {
+      // The receipt image is uploaded first so OCR and the final receipt record
+      // can refer to the same backend image id.
       final uploaded = await ref.read(apiProvider).uploadImage(image.path);
       uploadedImageId = uploaded.imageId;
       if (mounted) {
@@ -265,6 +267,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     final selectedIds = _selectedIdsFor(members);
     final selectedMembers =
         members.where((member) => selectedIds.contains(member.userId)).toList();
+    // Only selected members receive payment obligations; the split validation
+    // below makes sure those obligations still add up to the expense total.
     if (selectedMembers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona al menos un integrante')),
@@ -333,6 +337,8 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     final receipt = _ocrReceipt;
     final receiptAmount =
         receipt != null && receipt.amount > 0 ? receipt.amount : expenseAmount;
+    // Do not attach OCR data that claims a larger amount than the expense the
+    // user just confirmed.
     if (receiptAmount > expenseAmount) return;
     try {
       await ref.read(apiProvider).createExpenseReceipt(
@@ -826,6 +832,8 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     try {
       var photo = '';
       if (_evidence != null) {
+        // Evidence is optional, but when present it is uploaded before the
+        // payment update so the backend can store the image reference.
         photo =
             (await ref.read(apiProvider).uploadImage(_evidence!.path)).imageId;
       }
@@ -856,6 +864,8 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   Future<void> _confirmPayment(Payment payment) async {
     setState(() => _confirming = true);
     try {
+      // Confirmation is the business moment that may update reputation, badges
+      // and the payment smart-contract state in the backend.
       await ref.read(apiProvider).confirmPayment(payment.id);
       _refreshPaymentState(payment.id, payment: payment);
       ref.invalidate(dashboardSummaryProvider);
@@ -889,6 +899,8 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
   }
 
   void _syncBlockchainRefresh(Payment payment) {
+    // Blockchain writes are asynchronous on the backend. Keep refreshing while
+    // the transaction hash is missing, then stop once the hash appears.
     if (payment.blockchainHash.trim().isEmpty) {
       _startBlockchainRefresh();
     } else if (!_forceBlockchainRefresh) {
