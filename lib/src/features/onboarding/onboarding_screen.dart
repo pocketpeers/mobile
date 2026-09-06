@@ -2,9 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../state/providers.dart';
+import 'steps/crew_speaker.dart';
+import 'steps/split_step.dart';
+import 'steps/score_step.dart';
+import 'steps/blockchain_step.dart';
 
+/// Tutorial de primera vez.
+///
+/// Reemplaza las tres laminas de texto que habia antes. La diferencia de fondo
+/// es que aqui la persona toca cosas y ve el efecto: se aprende una mecanica
+/// haciendola, no leyendo la regla que la describe.
+///
+/// Se reutiliza desde Ajustes con [voluntary] en true, y en ese caso no vuelve a
+/// marcar el onboarding como completado.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({this.voluntary = false, super.key});
 
@@ -18,26 +31,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _controller = PageController();
   var _index = 0;
 
-  static const _pages = [
-    _OnboardingPageData(
-      icon: Icons.account_balance_wallet_outlined,
-      title: 'PocketPeers',
-      body:
-          'Organiza gastos compartidos, registra deudas y mantén claridad sobre quién debe pagar.',
-    ),
-    _OnboardingPageData(
-      icon: Icons.trending_up_outlined,
-      title: 'Score de reputacion',
-      body:
-          'Tu score sube con pagos puntuales, abonos parciales y rachas; baja cuando pagas tarde.',
-    ),
-    _OnboardingPageData(
-      icon: Icons.group_add_outlined,
-      title: 'Primer grupo',
-      body:
-          'Crea un grupo, invita miembros y registra un gasto para empezar a dividir pagos.',
-    ),
-  ];
+  static const _stepCount = 5;
 
   @override
   void dispose() {
@@ -47,9 +41,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isLast = _index == _stepCount - 1;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bienvenido'),
+        // Retroceder paso a paso, no salir de golpe: quien quiere releer algo no
+        // deberia tener que empezar de nuevo.
+        leading: _index == 0
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _previous,
+              ),
+        title: Text(widget.voluntary ? 'Cómo funciona' : 'Bienvenido'),
         actions: [
           TextButton(
             onPressed: _finish,
@@ -60,90 +64,32 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            _ProgressBar(index: _index, total: _stepCount),
             Expanded(
-              child: PageView.builder(
+              child: PageView(
                 controller: _controller,
-                itemCount: _pages.length,
                 onPageChanged: (value) => setState(() => _index = value),
-                itemBuilder: (context, index) {
-                  final item = _pages[index];
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 96,
-                          height: 96,
-                          decoration: BoxDecoration(
-                            color: context.successIconContainerColor,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            item.icon,
-                            size: 48,
-                            color: context.successIconColor,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        Text(
-                          item.title,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          item.body,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                children: const [
+                  _WelcomeStep(),
+                  SplitStep(),
+                  ScoreStep(),
+                  BlockchainStep(),
+                  _FinishStep(),
+                ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (var i = 0; i < _pages.length; i++)
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          width: i == _index ? 24 : 8,
-                          height: 8,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(
-                            color: i == _index
-                                ? context.successIconColor
-                                : Theme.of(context).dividerColor,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _index == _pages.length - 1
-                        ? _finish
-                        : () => _controller.nextPage(
-                              duration: const Duration(milliseconds: 220),
-                              curve: Curves.easeOut,
-                            ),
-                    icon: Icon(_index == _pages.length - 1
-                        ? Icons.check_outlined
-                        : Icons.arrow_forward_outlined),
-                    label: Text(
-                        _index == _pages.length - 1 ? 'Empezar' : 'Siguiente'),
-                  ),
-                ],
-              ),
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+              child: isLast
+                  ? _FinalActions(
+                      onCreateGroup: _goToCreateGroup,
+                      onExplore: _finish,
+                    )
+                  : FilledButton.icon(
+                      onPressed: _next,
+                      icon: const Icon(Icons.arrow_forward_outlined),
+                      label: const Text('Siguiente'),
+                    ),
             ),
           ],
         ),
@@ -151,22 +97,221 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  Future<void> _finish() async {
+  void _next() => _controller.nextPage(
+        duration: AppMotion.medium,
+        curve: AppMotion.curve,
+      );
+
+  void _previous() => _controller.previousPage(
+        duration: AppMotion.medium,
+        curve: AppMotion.curve,
+      );
+
+  Future<void> _markCompleted() async {
     if (!widget.voluntary) {
       await ref.read(authControllerProvider.notifier).completeOnboarding();
     }
+  }
+
+  Future<void> _finish() async {
+    await _markCompleted();
     if (mounted) context.go('/dashboard');
+  }
+
+  /// El tutorial termina llevando a la primera accion real, no a un panel vacio.
+  Future<void> _goToCreateGroup() async {
+    await _markCompleted();
+    if (mounted) context.go('/groups/new');
   }
 }
 
-class _OnboardingPageData {
-  const _OnboardingPageData({
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
+/// Barra de avance en lugar de puntos.
+///
+/// Con cinco pasos, los puntos ya no comunican cuanto falta; una barra si.
+class _ProgressBar extends StatelessWidget {
+  const _ProgressBar({required this.index, required this.total});
 
-  final IconData icon;
-  final String title;
-  final String body;
+  final int index;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: (index + 1) / total),
+              duration: AppMotion.medium,
+              curve: AppMotion.curve,
+              builder: (context, value, _) => LinearProgressIndicator(
+                value: value,
+                minHeight: 6,
+                backgroundColor: Theme.of(context).dividerColor,
+                valueColor:
+                    AlwaysStoppedAnimation(context.successIconColor),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Paso ${index + 1} de $total',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: context.mutedIconColor),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WelcomeStep extends StatelessWidget {
+  const _WelcomeStep();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+      child: Column(
+        children: [
+          // Los personajes abren la pantalla en lugar del logo: la marca ya se
+          // vio en el acceso, y aqui lo que se busca es que la primera impresion
+          // sea de personas y no de producto.
+          const CrewDuo(),
+          const SizedBox(height: 20),
+          Text(
+            'Te damos la bienvenida a PocketPeers',
+            textAlign: TextAlign.center,
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Aquí llevas la cuenta de lo que compartes con otros: quién puso '
+            'qué, quién debe cuánto y quién ya pagó.',
+            textAlign: TextAlign.center,
+            style:
+                Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: context.successIconContainerColor,
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.schedule_outlined,
+                    size: 16, color: context.successIconColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Cuatro pasos, menos de un minuto',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.successIconColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+class _FinishStep extends StatelessWidget {
+  const _FinishStep();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: context.successIconContainerColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.rocket_launch_outlined,
+                size: 44, color: context.successIconColor),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Eso es todo',
+            textAlign: TextAlign.center,
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Crea un grupo, invita a quienes comparten el gasto y registra el '
+            'primero. El resto se explica solo.',
+            textAlign: TextAlign.center,
+            style:
+                Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: context.primaryIconContainerColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.help_outline,
+                    size: 20, color: context.primaryIconColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Puedes volver a ver esto cuando quieras desde Ajustes.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FinalActions extends StatelessWidget {
+  const _FinalActions({required this.onCreateGroup, required this.onExplore});
+
+  final VoidCallback onCreateGroup;
+  final VoidCallback onExplore;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        FilledButton.icon(
+          onPressed: onCreateGroup,
+          icon: const Icon(Icons.group_add_outlined),
+          label: const Text('Crear mi primer grupo'),
+        ),
+        TextButton(
+          onPressed: onExplore,
+          child: const Text('Explorar por mi cuenta'),
+        ),
+      ],
+    );
+  }
 }

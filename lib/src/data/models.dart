@@ -310,6 +310,7 @@ class PaymentReminder {
     required this.title,
     required this.body,
     this.createdAt,
+    this.read = false,
   });
 
   final int id;
@@ -322,6 +323,10 @@ class PaymentReminder {
   final String body;
   final DateTime? createdAt;
 
+  /// Si el usuario ya la vio. El historial devuelve leidas y no leidas juntas,
+  /// asi que la pantalla necesita distinguirlas.
+  final bool read;
+
   factory PaymentReminder.fromJson(Map<String, Object?> json) =>
       PaymentReminder(
         id: _toInt(json['id']),
@@ -333,6 +338,7 @@ class PaymentReminder {
         title: json['title']?.toString() ?? 'Recordatorio de pago',
         body: json['body']?.toString() ?? '',
         createdAt: _toDate(json['createdAt']),
+        read: json['read'] == true,
       );
 }
 
@@ -651,6 +657,7 @@ class DashboardSummary {
     required this.score,
     required this.monthlyExpenses,
     required this.recentPayments,
+    this.upcoming = const [],
   });
 
   final double balance;
@@ -660,4 +667,35 @@ class DashboardSummary {
   final int score;
   final Map<String, double> monthlyExpenses;
   final List<Payment> recentPayments;
+
+  /// Deudas propias con fecha, de la mas urgente a la mas lejana.
+  final List<UpcomingPayment> upcoming;
+}
+
+/// Una deuda pendiente con su vencimiento.
+///
+/// El pago no trae la fecha: vive en el gasto. Se resuelve el cruce una sola vez
+/// al armar el resumen, para que la pantalla no tenga que buscar el gasto de
+/// cada pago mientras dibuja.
+class UpcomingPayment {
+  const UpcomingPayment({
+    required this.paymentId,
+    required this.title,
+    required this.remaining,
+    required this.dueDate,
+  });
+
+  final int paymentId;
+  final String title;
+  final double remaining;
+  final DateTime dueDate;
+
+  /// Dias que faltan. Negativo si ya paso la fecha.
+  int daysLeft(DateTime now) {
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return due.difference(today).inDays;
+  }
+
+  bool isOverdue(DateTime now) => daysLeft(now) < 0;
 }

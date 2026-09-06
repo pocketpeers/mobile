@@ -13,6 +13,7 @@ import '../../core/validators.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../groups/join_group_dialog.dart';
+import 'badge_progress.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -113,7 +114,10 @@ class SettingsScreen extends ConsumerWidget {
               error: (error, stackTrace) => const Card(
                 child: ListTile(title: Text('No se pudieron cargar badges')),
               ),
-              data: (items) => _BadgesCard(badges: items),
+              data: (items) => _BadgesCard(
+                badges: items,
+                reputation: reputation.valueOrNull,
+              ),
             ),
             const SizedBox(height: 16),
             Card(
@@ -135,11 +139,19 @@ class SettingsScreen extends ConsumerWidget {
                   const _NotificationSettingsTile(),
                   const Divider(height: 1),
                   ListTile(
+                    leading: Icon(Icons.password_outlined,
+                        color: context.primaryIconColor),
+                    title: const Text('Cambiar contrasena'),
+                    subtitle: const Text('Actualiza tu clave de acceso'),
+                    onTap: () => context.push('/settings/password'),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
                     leading: Icon(Icons.help_outline,
                         color: context.primaryIconColor),
                     title: const Text('Ayuda'),
                     subtitle: const Text('Ver nuevamente el onboarding'),
-                    onTap: () => context.push('/onboarding'),
+                    onTap: () => context.push('/onboarding?voluntary=true'),
                   ),
                   const Divider(height: 1),
                   ListTile(
@@ -488,58 +500,107 @@ class _ReputationCard extends StatelessWidget {
   }
 }
 
+/// Resumen de insignias en el perfil, con acceso a la vista completa.
+///
+/// Antes esta tarjeta mostraba las doce en una cuadricula. Con las conseguidas y
+/// las bloqueadas mezcladas, ninguna de las dos cosas se leia: los logros se
+/// diluian y las pendientes no decian a que distancia estaban. Aqui queda solo
+/// el recuento y las ultimas ganadas; el detalle vive en su propia pantalla.
 class _BadgesCard extends StatelessWidget {
-  const _BadgesCard({required this.badges});
+  const _BadgesCard({required this.badges, required this.reputation});
 
   final List<PblBadge> badges;
+  final Reputation? reputation;
 
   @override
   Widget build(BuildContext context) {
+    final groups = BadgeGroups.from(badges, reputation);
+    final ultimas = groups.unlocked.reversed.take(4).toList();
+    final siguiente =
+        groups.withinReach.isEmpty ? null : groups.withinReach.first;
+
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Badges', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (badges.isEmpty)
-              const Text('Aun no hay badges disponibles')
-            else
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final columns =
-                      MediaQuery.sizeOf(context).width > 700 ? 4 : 2;
-                  final itemWidth =
-                      (constraints.maxWidth - (columns - 1) * 8) / columns;
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (var i = 0; i < badges.length; i++)
-                        SizedBox(
-                          width: itemWidth,
-                          child: AnimatedSection(
-                              index: i, child: _BadgeTile(badge: badges[i])),
-                        ),
-                    ],
-                  );
-                },
+      child: InkWell(
+        onTap: () => context.push('/settings/badges'),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.emoji_events_outlined,
+                      size: 20, color: context.successIconColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Insignias',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${groups.unlocked.length} de ${groups.total}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: context.mutedIconColor),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right, color: context.mutedIconColor),
+                ],
               ),
-          ],
+              if (ultimas.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    for (final badge in ultimas)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: context.successIconContainerColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            badgeIconForCode(badge.code),
+                            size: 20,
+                            color: context.successIconColor,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+              if (siguiente != null) ...[
+                const SizedBox(height: 14),
+                // La mas cercana, escrita: es la que puede cambiar lo que la
+                // persona hace hoy.
+                Text(
+                  '${siguiente.label} para ${siguiente.badge.name}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.primaryIconColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ] else if (ultimas.isEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Registra tu primer pago para empezar a desbloquearlas.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: context.mutedIconColor),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
-  }
-}
-
-class _BadgeTile extends StatelessWidget {
-  const _BadgeTile({required this.badge});
-
-  final PblBadge badge;
-
-  @override
-  Widget build(BuildContext context) {
-    return BadgeMedal(badge: badge);
   }
 }

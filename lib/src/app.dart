@@ -10,10 +10,14 @@ import 'core/app_theme.dart';
 import 'core/badge_visuals.dart';
 import 'data/models.dart';
 import 'features/auth/auth_screen.dart';
+import 'features/auth/forgot_password_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/groups/group_screens.dart';
 import 'features/operations/operation_screens.dart';
+import 'features/notifications/notifications_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
+import 'features/settings/badges_screen.dart';
+import 'features/settings/change_password_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/splash/splash_screen.dart';
 import 'state/providers.dart';
@@ -45,7 +49,13 @@ final _routerProvider = Provider<GoRouter>((ref) {
       // flag. Keeping this logic centralized avoids duplicated guards in every
       // screen.
       final isSplashRoute = state.matchedLocation == '/splash';
-      final isAuthRoute = state.matchedLocation == '/auth';
+      final isForgotPasswordRoute =
+          state.matchedLocation == '/forgot-password';
+      // Recuperar la contraseña es, por definición, algo que se hace sin haber
+      // podido iniciar sesión: esa ruta tiene que ser alcanzable sin sesión,
+      // igual que la de acceso.
+      final isAuthRoute =
+          state.matchedLocation == '/auth' || isForgotPasswordRoute;
       final isOnboardingRoute = state.matchedLocation == '/onboarding';
 
       if (!_isMinSplashTimePassed) {
@@ -85,10 +95,22 @@ final _routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: '/forgot-password',
+        pageBuilder: (context, state) => appTransitionPage(
+          key: state.pageKey,
+          child: const ForgotPasswordScreen(),
+        ),
+      ),
+      GoRoute(
         path: '/onboarding',
         pageBuilder: (context, state) => appTransitionPage(
           key: state.pageKey,
-          child: const OnboardingScreen(),
+          // Abierto desde Ajustes es una consulta voluntaria, no el alta de un
+          // usuario nuevo: cambia los textos y no vuelve a marcar el tutorial
+          // como completado.
+          child: OnboardingScreen(
+            voluntary: state.uri.queryParameters['voluntary'] == 'true',
+          ),
         ),
       ),
       ShellRoute(
@@ -164,11 +186,34 @@ final _routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(
+            path: '/notifications',
+            pageBuilder: (context, state) => appTransitionPage(
+              key: state.pageKey,
+              child: const NotificationsScreen(),
+            ),
+          ),
+          GoRoute(
             path: '/settings',
             pageBuilder: (context, state) => appTransitionPage(
               key: state.pageKey,
               child: const SettingsScreen(),
             ),
+            routes: [
+              GoRoute(
+                path: 'password',
+                pageBuilder: (context, state) => appTransitionPage(
+                  key: state.pageKey,
+                  child: const ChangePasswordScreen(),
+                ),
+              ),
+              GoRoute(
+                path: 'badges',
+                pageBuilder: (context, state) => appTransitionPage(
+                  key: state.pageKey,
+                  child: const BadgesScreen(),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -181,6 +226,9 @@ class PocketPeersApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Deja escuchando el cierre de sesion por token vencido durante toda la
+    // vida de la aplicacion.
+    ref.watch(sessionExpiryWatcherProvider);
     final router = ref.watch(_routerProvider);
     return MaterialApp.router(
       title: 'PocketPeers',
@@ -214,6 +262,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _foregroundSubscription;
   StreamSubscription<RemoteMessage>? _openedSubscription;
+  StreamSubscription<Map<String, dynamic>>? _localTapSubscription;
   var _polling = false;
   final _shownReminderIds = <int>{};
   int? _knownBadgeUserId;
@@ -236,6 +285,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     _tokenRefreshSubscription?.cancel();
     _foregroundSubscription?.cancel();
     _openedSubscription?.cancel();
+    _localTapSubscription?.cancel();
     super.dispose();
   }
 
@@ -264,6 +314,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     _openedSubscription ??= reminderService.openedMessages().listen(
           _openPaymentFromMessage,
         );
+    // Taps on notifications drawn while the app was open arrive here instead of
+    // through onMessageOpenedApp, which only fires for FCM-rendered ones.
+    _localTapSubscription ??= reminderService.notificationTaps().listen(
+          _openPaymentFromData,
+        );
 
     final initialMessage = await reminderService.initialMessage();
     if (initialMessage != null) {
@@ -271,40 +326,34 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
-  void _showForegroundFcmReminder(RemoteMessage message) {
+  Future<void> _showForegroundFcmReminder(RemoteMessage message) async {
     if (!mounted) return;
-    final notification = message.notification;
-    final title = notification?.title ?? 'Recordatorio de pago';
-    final body = notification?.body ?? '';
     final notificationId =
         int.tryParse(message.data['notificationId']?.toString() ?? '');
-    final paymentId = int.tryParse(message.data['paymentId']?.toString() ?? '');
     if (notificationId != null) {
+      // Recording it here also stops the polling fallback from surfacing the
+      // same reminder a second time.
       _shownReminderIds.add(notificationId);
       ref.read(apiProvider).markNotificationRead(notificationId);
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(body.isEmpty ? title : '$title\n$body'),
-        duration: const Duration(seconds: 8),
-        action: paymentId == null
-            ? null
-            : SnackBarAction(
-                label: 'Pagar',
-                onPressed: () => context.push('/payments/$paymentId'),
-              ),
-      ),
-    );
+    try {
+      await ref.read(reminderServiceProvider).showRemoteMessage(message);
+    } catch (error) {
+      debugPrint('Foreground notification failed: $error');
+    }
   }
 
-  void _openPaymentFromMessage(RemoteMessage message) {
+  void _openPaymentFromMessage(RemoteMessage message) =>
+      _openPaymentFromData(message.data);
+
+  void _openPaymentFromData(Map<String, dynamic> data) {
     final notificationId =
-        int.tryParse(message.data['notificationId']?.toString() ?? '');
+        int.tryParse(data['notificationId']?.toString() ?? '');
     if (notificationId != null) {
       _shownReminderIds.add(notificationId);
       ref.read(apiProvider).markNotificationRead(notificationId);
     }
-    final paymentId = int.tryParse(message.data['paymentId']?.toString() ?? '');
+    final paymentId = int.tryParse(data['paymentId']?.toString() ?? '');
     if (paymentId == null || !mounted) return;
     context.push('/payments/$paymentId');
   }
@@ -332,16 +381,19 @@ class _AppShellState extends ConsumerState<AppShell> {
       await ref.read(apiProvider).markNotificationRead(nextReminder.id);
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${nextReminder.title}\n${nextReminder.body}'),
-          duration: const Duration(seconds: 8),
-          action: SnackBarAction(
-            label: 'Pagar',
-            onPressed: () =>
-                context.push('/payments/${nextReminder?.paymentId}'),
-          ),
-        ),
+      // Rendered the same way as an FCM reminder so both delivery paths look
+      // identical to the user.
+      await ref.read(reminderServiceProvider).showDueReminder(
+        id: nextReminder.id & 0x7fffffff,
+        title: nextReminder.title,
+        body: nextReminder.body,
+        data: {
+          'notificationId': '${nextReminder.id}',
+          'paymentId': '${nextReminder.paymentId}',
+          'expenseId': '${nextReminder.expenseId}',
+          'groupId': '${nextReminder.groupId}',
+          'type': nextReminder.type,
+        },
       );
     } catch (_) {
       // Reminder polling should never interrupt the main app flow.

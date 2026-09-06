@@ -114,6 +114,24 @@ DashboardSummary summarizeDashboard({
   final recent = [...outgoingPayments, ...incomingPayments]
     ..sort((a, b) => b.id.compareTo(a.id));
 
+  // Deudas propias con fecha, de la mas urgente a la mas lejana. Se cruza el
+  // pago con su gasto porque la fecha de vencimiento vive en el gasto.
+  final expenseById = {for (final expense in expenses) expense.id: expense};
+  final upcoming = <UpcomingPayment>[];
+  for (final payment in outgoingPayments) {
+    if (_consideredRemaining(payment) <= 0) continue;
+    final expense = expenseById[payment.expenseId];
+    final dueDate = expense?.dueDate;
+    if (expense == null || dueDate == null) continue;
+    upcoming.add(UpcomingPayment(
+      paymentId: payment.id,
+      title: expense.name,
+      remaining: _consideredRemaining(payment),
+      dueDate: dueDate,
+    ));
+  }
+  upcoming.sort((a, b) => a.dueDate.compareTo(b.dueDate));
+
   return DashboardSummary(
     balance: incomingPending - outgoingPending,
     totalExpenses: totalExpenses,
@@ -122,6 +140,7 @@ DashboardSummary summarizeDashboard({
     score: score,
     monthlyExpenses: monthly,
     recentPayments: recent.take(8).toList(),
+    upcoming: upcoming,
   );
 }
 

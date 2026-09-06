@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../core/config.dart';
 import 'models.dart';
@@ -31,12 +34,89 @@ class PocketPeersApi {
           }
           handler.next(options);
         },
+        onError: (error, handler) async {
+          // El token es un JWT con vencimiento: cuando caduca, todas las
+          // pantallas empiezan a recibir 401 y antes se quedaban reintentando
+          // sin fin. Detectarlo aquí, en un solo lugar, evita repetir la misma
+          // comprobación en cada pantalla.
+          if (_isSessionExpired(error)) {
+            // Se limpia antes de avisar: quien escucha recarga la sesión, y si
+            // el token siguiera guardado la restauraría como si nada.
+            await _clearStoredSession();
+            // Al cerrar sesión quedan peticiones en vuelo que también van a
+            // fallar con 401. Sin esto, cada una repetiría el aviso.
+            _suppressExpiryNotice = true;
+            if (!_sessionExpired.isClosed) _sessionExpired.add(null);
+          }
+          handler.next(error);
+        },
+      ),
+    );
+
+    _dio.interceptors.add(
+      PrettyDioLogger(
+        requestHeader: true,
+        requestBody: true,
+        responseBody: true,
+        responseHeader: false,
+        error: true,
+        compact: true,
+        maxWidth: 90,
       ),
     );
   }
 
   final Dio _dio;
   final FlutterSecureStorage _storage;
+
+  final _sessionExpired = StreamController<void>.broadcast();
+
+  /// Emite cuando el backend rechaza el token por vencido.
+  ///
+  /// Es un stream y no un callback para que la capa de datos no tenga que
+  /// conocer a Riverpod ni al enrutador: quien escuche decide qué hacer.
+  Stream<void> get onSessionExpired => _sessionExpired.stream;
+
+  void dispose() {
+    _sessionExpired.close();
+  }
+
+  /// Silencia el aviso de vencimiento tras un cierre de sesión.
+  ///
+  /// Se levanta cuando el usuario cierra sesión a propósito y cuando ya se
+  /// detectó un vencimiento. Vuelve a bajar al iniciar sesión de nuevo.
+  var _suppressExpiryNotice = false;
+
+  /// Distingue "tu sesión venció" de todo lo demás que también responde 401.
+  ///
+  /// Hay tres casos que no son vencimiento y que antes se confundían con uno:
+  /// iniciar sesión con la contraseña equivocada, las peticiones que quedan en
+  /// vuelo cuando el usuario cierra sesión por su cuenta, y cualquier llamada
+  /// que sale sin token. Tratarlos como vencimiento hacía aparecer el aviso de
+  /// "tu sesión expiró" en momentos donde no había expirado nada.
+  bool _isSessionExpired(DioException error) {
+    if (error.response?.statusCode != 401) return false;
+    if (_suppressExpiryNotice) return false;
+
+    // Una petición que salió sin credenciales no puede haber vencido: no las
+    // llevaba. Es el caso de las pantallas que siguen activas justo después de
+    // cerrar sesión.
+    if (error.requestOptions.headers['Authorization'] == null) return false;
+
+    final path = error.requestOptions.path;
+    if (path.contains('/authentication/sign-in') ||
+        path.contains('/authentication/sign-up') ||
+        path.contains('/authentication/password-reset')) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _clearStoredSession() async {
+    await _storage.delete(key: StorageKeys.authToken);
+    await _storage.delete(key: StorageKeys.userId);
+    await _storage.delete(key: StorageKeys.username);
+  }
 
   Future<AuthSession?> restoreSession() async {
     final token = await _storage.read(key: StorageKeys.authToken);
@@ -79,10 +159,49 @@ class PocketPeersApi {
     );
   }
 
+  /// Cierre de sesion a peticion del usuario.
+  ///
+  /// Silencia el aviso de vencimiento: quien cierra sesion a proposito ya sabe
+  /// por que salio, y las pantallas que sigan activas van a recibir 401 sin que
+  /// eso signifique que algo caduco.
   Future<void> signOut() async {
-    await _storage.delete(key: StorageKeys.authToken);
-    await _storage.delete(key: StorageKeys.userId);
-    await _storage.delete(key: StorageKeys.username);
+    _suppressExpiryNotice = true;
+    await _clearStoredSession();
+  }
+
+  /// Pide al backend que envíe un código de recuperación al correo.
+  ///
+  /// El backend responde igual exista o no la cuenta, así que esta llamada no
+  /// puede usarse para averiguar qué correos están registrados. La pantalla debe
+  /// mostrar el mismo mensaje en todos los casos.
+  Future<void> requestPasswordReset(String email) async {
+    await _dio.post<JsonMap>(
+      '/api/v1/authentication/password-reset/request',
+      data: {'email': email},
+    );
+  }
+
+  /// Canjea el código recibido por correo por una contraseña nueva.
+  Future<void> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    await _dio.post<JsonMap>(
+      '/api/v1/authentication/password-reset/confirm',
+      data: {'email': email, 'code': code, 'newPassword': newPassword},
+    );
+  }
+
+  /// Cambia la contraseña de la sesión activa. Requiere la contraseña actual.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _dio.put<JsonMap>(
+      '/api/v1/authentication/password',
+      data: {'currentPassword': currentPassword, 'newPassword': newPassword},
+    );
   }
 
   Future<bool> isOnboardingCompleted() async {
@@ -94,6 +213,8 @@ class PocketPeersApi {
   }
 
   Future<void> _persistSession(AuthSession session) async {
+    // Hay sesion nueva: vuelve a tener sentido avisar si esta vence.
+    _suppressExpiryNotice = false;
     await _storage.write(key: StorageKeys.authToken, value: session.token);
     await _storage.write(key: StorageKeys.userId, value: session.id.toString());
     await _storage.write(key: StorageKeys.username, value: session.username);
@@ -420,6 +541,41 @@ class PocketPeersApi {
 
   Future<void> markNotificationRead(int notificationId) async {
     await _dio.post<JsonMap>('/api/v1/notifications/$notificationId/read');
+  }
+
+  /// Historial completo, leídas y no leídas, de la más reciente a la más antigua.
+  ///
+  /// Paginado porque la lista solo crece: el backend acota el tamaño máximo.
+  Future<List<PaymentReminder>> getNotificationHistory({
+    int page = 0,
+    int size = 30,
+  }) async {
+    final response = await _dio.get<List<dynamic>>(
+      '/api/v1/notifications',
+      queryParameters: {'page': page, 'size': size},
+    );
+    return _list(response.data, PaymentReminder.fromJson);
+  }
+
+  Future<int> getUnreadNotificationCount() async {
+    final response =
+        await _dio.get<JsonMap>('/api/v1/notifications/unread/count');
+    final value = response.data?['unread'];
+    return value is num ? value.toInt() : 0;
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await _dio.post<JsonMap>('/api/v1/notifications/read-all');
+  }
+
+  Future<void> deleteNotification(int notificationId) async {
+    await _dio.delete<JsonMap>('/api/v1/notifications/$notificationId');
+  }
+
+  /// Vacía las notificaciones ya leídas. Las pendientes se conservan, para que
+  /// nadie pierda un aviso de vencimiento que todavía no vio.
+  Future<void> deleteReadNotifications() async {
+    await _dio.delete<JsonMap>('/api/v1/notifications/read');
   }
 
   Future<List<OverdueMember>> getOverdueMembers(int groupId) async {

@@ -13,6 +13,26 @@ final onboardingCompletedProvider = FutureProvider<bool>((ref) {
   return ref.read(apiProvider).isOnboardingCompleted();
 });
 
+/// Marca que la ultima sesion se cerro porque el token vencio.
+///
+/// La pantalla de acceso la lee para explicar por que se cerro la sesion. Sin
+/// esto, al usuario lo devuelve al login sin ninguna razon aparente.
+final sessionExpiredProvider = StateProvider<bool>((ref) => false);
+
+/// Escucha los rechazos por token vencido y cierra la sesion.
+///
+/// Se activa una sola vez, desde la raiz de la aplicacion. El interceptor ya
+/// borro las credenciales guardadas; recargar el controlador hace que el estado
+/// pase a null y el enrutador redirija al acceso por su cuenta.
+final sessionExpiryWatcherProvider = Provider<void>((ref) {
+  final api = ref.watch(apiProvider);
+  final subscription = api.onSessionExpired.listen((_) {
+    ref.read(sessionExpiredProvider.notifier).state = true;
+    ref.invalidate(authControllerProvider);
+  });
+  ref.onDispose(subscription.cancel);
+});
+
 final authControllerProvider =
     AsyncNotifierProvider<AuthController, AuthSession?>(AuthController.new);
 
@@ -53,6 +73,9 @@ class AuthController extends AsyncNotifier<AuthSession?> {
 
   Future<void> signOut() async {
     await _api.signOut();
+    // Salir por decision propia nunca debe mostrar "tu sesion expiro": si el
+    // aviso quedo levantado de un vencimiento anterior, se baja aqui.
+    ref.read(sessionExpiredProvider.notifier).state = false;
     state = const AsyncData(null);
   }
 
@@ -71,6 +94,22 @@ class AuthController extends AsyncNotifier<AuthSession?> {
 final profileProvider = FutureProvider<UserProfile>((ref) async {
   ref.watch(authControllerProvider);
   return ref.read(apiProvider).getMyProfile();
+});
+
+/// Historial de notificaciones, leidas y no leidas.
+///
+/// Se pide solo la primera pagina: alcanza para la pantalla y evita traer
+/// meses de historial que nadie va a desplazar.
+final notificationHistoryProvider =
+    FutureProvider<List<PaymentReminder>>((ref) async {
+  ref.watch(authControllerProvider);
+  return ref.read(apiProvider).getNotificationHistory();
+});
+
+/// Cantidad de notificaciones sin leer, para el indicador del panel.
+final unreadNotificationCountProvider = FutureProvider<int>((ref) async {
+  ref.watch(authControllerProvider);
+  return ref.read(apiProvider).getUnreadNotificationCount();
 });
 
 final groupsProvider = FutureProvider<List<Group>>((ref) async {

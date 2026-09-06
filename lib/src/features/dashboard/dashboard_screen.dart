@@ -8,6 +8,7 @@ import '../../core/app_theme.dart';
 import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../data/models.dart';
+import 'dashboard_cards.dart';
 import '../../state/providers.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -18,62 +19,89 @@ class DashboardScreen extends ConsumerWidget {
     final summary = ref.watch(dashboardSummaryProvider);
     final reputation = ref.watch(myReputationProvider);
     final history = ref.watch(myReputationHistoryProvider);
-    return summary.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stackTrace) => ErrorView(
-        title: 'No se pudo cargar el dashboard',
-        onRetry: () => ref.invalidate(dashboardSummaryProvider),
+    return Scaffold(
+      // Home era la unica pestana sin AppBar: Grupos, Reportes y Ajustes ya
+      // tenian la suya. Ponersela alinea la navegacion y libera el encabezado
+      // degradado, que estaba cargando el titulo y el acceso a notificaciones
+      // ademas del balance y el score.
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Text('Home'),
+        actions: [
+          _NotificationBell(
+            unread: ref.watch(unreadNotificationCountProvider).valueOrNull ?? 0,
+          ),
+        ],
       ),
-      data: (data) => RefreshIndicator(
+      body: summary.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stackTrace) => ErrorView(
+          title: 'No se pudo cargar el dashboard',
+          onRetry: () => ref.invalidate(dashboardSummaryProvider),
+        ),
+        data: (data) => RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(dashboardSummaryProvider);
           ref.invalidate(myReputationProvider);
           ref.invalidate(myReputationHistoryProvider);
           ref.invalidate(myBadgesProvider);
+          ref.invalidate(unreadNotificationCountProvider);
         },
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Orden por urgencia: primero cuanto tienes, luego que debes hacer,
+            // despues como vas, y al final el detalle historico.
             AnimatedSection(
-              child: _DashboardHeader(
-                summary: data,
-                reputation: reputation.valueOrNull,
-              ),
+              child: _DashboardHeader(summary: data),
             ),
             const SizedBox(height: 16),
             AnimatedSection(
               index: 1,
-              child: _MetricGrid(
-                summary: data,
-                reputation: reputation.valueOrNull,
-              ),
+              child: UpcomingPaymentsCard(upcoming: data.upcoming),
             ),
             const SizedBox(height: 16),
             AnimatedSection(
               index: 2,
+              child: ScoreCard(
+                reputation: reputation.valueOrNull,
+                fallbackScore: data.score,
+              ),
+            ),
+            const SizedBox(height: 16),
+            AnimatedSection(index: 3, child: _MetricGrid(summary: data)),
+            const SizedBox(height: 16),
+            AnimatedSection(
+              index: 4,
               child: _ReputationHistoryCard(
                 events: history.valueOrNull ?? const [],
               ),
             ),
             const SizedBox(height: 16),
-            AnimatedSection(index: 3, child: _MonthlyChart(summary: data)),
+            AnimatedSection(index: 5, child: _MonthlyChart(summary: data)),
             const SizedBox(height: 16),
             AnimatedSection(
-              index: 4,
+              index: 6,
               child: _RecentTransactions(payments: data.recentPayments),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+/// Encabezado del panel: solo el balance.
+///
+/// El circulo del score salio de aqui. Repetia el numero que la tarjeta de
+/// reputacion muestra completo, y competia con el balance por la atencion en la
+/// primera pantalla.
 class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader({required this.summary, required this.reputation});
+  const _DashboardHeader({required this.summary});
 
   final DashboardSummary summary;
-  final Reputation? reputation;
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +122,7 @@ class _DashboardHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Home',
+                  'Balance',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: Colors.white.withOpacity(0.72),
                       ),
@@ -117,34 +145,12 @@ class _DashboardHeader extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.green.withOpacity(0.22),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(
-                  begin: 0,
-                  end: (reputation?.score ?? summary.score).toDouble(),
-                ),
-                duration: AppMotion.slow,
-                curve: AppMotion.curve,
-                builder: (context, value, child) => FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    value.round().toString(),
-                    maxLines: 1,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ),
-              ),
-            ),
+          Icon(
+            summary.balance >= 0
+                ? Icons.trending_up_outlined
+                : Icons.trending_down_outlined,
+            size: 40,
+            color: Colors.white.withOpacity(0.55),
           ),
         ],
       ),
@@ -152,62 +158,100 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
-class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.summary, required this.reputation});
+/// Acceso a las notificaciones, con el contador de no leidas.
+///
+/// Vive en la barra superior y no en una tarjeta del panel: es un acceso, no
+/// contenido. Ocupar una seccion entera para tres titulos desplazaba hacia abajo
+/// lo que la persona viene a ver.
+class _NotificationBell extends StatelessWidget {
+  const _NotificationBell({required this.unread});
 
-  final DashboardSummary summary;
-  final Reputation? reputation;
+  final int unread;
 
   @override
   Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: () => context.push('/notifications'),
+      tooltip: unread > 0
+          ? '$unread notificaciones sin leer'
+          : 'Notificaciones',
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(Icons.notifications_outlined),
+          if (unread > 0)
+            Positioned(
+              right: -3,
+              top: -3,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                constraints: const BoxConstraints(minWidth: 16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.error,
+                  borderRadius: BorderRadius.circular(99),
+                  // El borde separa el contador del icono. Toma el color del
+                  // fondo de la barra para que funcione en tema claro y oscuro.
+                  border: Border.all(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    width: 1.5,
+                  ),
+                ),
+                child: Text(
+                  unread > 9 ? '9+' : '$unread',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricGrid extends StatelessWidget {
+  const _MetricGrid({required this.summary});
+
+  final DashboardSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    // Tres metricas, no siete. Salieron Balance, que ya esta en el encabezado,
+    // y Score, Nivel, Racha y Siguiente nivel, que ahora viven juntos en la
+    // tarjeta de reputacion. Lo que queda son las tres cifras de dinero que no
+    // se repiten en ningun otro lado.
     return GridView.count(
-      crossAxisCount: MediaQuery.sizeOf(context).width > 700 ? 4 : 2,
+      crossAxisCount: 3,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
-      childAspectRatio: 1.65,
+      childAspectRatio: 1.05,
       children: [
-        MetricCard(
-          label: 'Balance',
-          value: formatCurrency(summary.balance),
-          icon: Icons.account_balance_wallet_outlined,
-        ),
         MetricCard(
           label: 'Gastos',
           value: formatCurrency(summary.totalExpenses),
           icon: Icons.receipt_long_outlined,
         ),
         MetricCard(
+          label: 'Pagado',
+          value: formatCurrency(summary.totalPaid),
+          icon: Icons.check_circle_outline,
+        ),
+        MetricCard(
           label: 'Pendiente',
           value: formatCurrency(summary.totalPending),
           icon: Icons.schedule_outlined,
-        ),
-        MetricCard(
-          label: 'Score',
-          value: '${reputation?.score ?? summary.score}/100',
-          icon: Icons.trending_up_outlined,
-        ),
-        MetricCard(
-          label: 'Nivel',
-          value: reputation?.level ?? 'Nuevo',
-          icon: Icons.workspace_premium_outlined,
-        ),
-        MetricCard(
-          label: 'Racha',
-          value: '${reputation?.onTimePaymentStreak ?? 0}',
-          icon: Icons.local_fire_department_outlined,
-        ),
-        MetricCard(
-          label: 'Siguiente nivel',
-          value: '${reputation?.pointsToNextLevel ?? 0} pts',
-          icon: Icons.flag_outlined,
         ),
       ],
     );
   }
 }
-
 class _ReputationHistoryCard extends StatelessWidget {
   const _ReputationHistoryCard({required this.events});
 

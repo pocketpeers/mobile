@@ -19,6 +19,7 @@ dependencies:
   image_picker: ^1.1.2
   fl_chart: ^0.69.2
   intl: ^0.20.1
+  flutter_local_notifications: ^22.3.0
 
 dev_dependencies:
   flutter_test:
@@ -32,3 +33,5 @@ flutter:
 
   assets:
     - assets/images/
+    # Las subcarpetas no se incluyen solas: hay que declararlas aparte.
+    - assets/images/crew/
