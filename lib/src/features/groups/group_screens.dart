@@ -9,7 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/badge_visuals.dart';
-import '../../core/blockchain_hash_chip.dart';
+import '../../core/crew.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
@@ -17,6 +17,7 @@ import '../../core/validators.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../expenses/expense_screens.dart';
 import 'join_group_dialog.dart';
 
 const _groupDescriptionMaxLength = 100;
@@ -307,6 +308,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           title: 'Grupo creado',
           message: 'Tu grupo ya esta listo para sumar integrantes',
           icon: Icons.group_add_outlined,
+          // El tutorial termina empujando a crear el primer grupo, asi que este
+          // es el primer logro real de mucha gente. Festeja Ariana, que es
+          // quien explica el reparto entre varios.
+          leading: const CrewCelebration.jumping(member: CrewMember.ariana),
         );
         context.pop();
       }
@@ -467,65 +472,73 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            _SectionCard(
-              title: 'Gastos',
-              child: expenses.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (error, stackTrace) =>
-                    Text('No se pudieron cargar gastos'),
-                data: (items) => items.isEmpty
-                    ? const ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text('Sin gastos'))
-                    : Column(
-                        children: [
-                          for (final expense in items)
-                            ExpansionTile(
-                              tilePadding: EdgeInsets.zero,
-                              title: Text(expense.name),
-                              subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Wrap(
-                                  spacing: 8,
-                                  runSpacing: 6,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    Text(
-                                        'Vence ${formatDate(expense.dueDate)}'),
-                                    BlockchainHashChip(
-                                      hash: expense.blockchainHash,
-                                      compact: true,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(formatCurrency(expense.amount)),
-                                  if (isAdmin) ...[
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      tooltip: 'Anular gasto',
-                                      onPressed: () => _confirmCancelExpense(
-                                        context,
-                                        ref,
-                                        expense,
-                                      ),
-                                      icon: const Icon(Icons.block_outlined),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              children: [
-                                _ExpensePayments(expenseId: expense.id),
-                              ],
-                            ),
-                        ],
-                      ),
-              ),
+            const SizedBox(height: 24),
+            // Los gastos no van dentro de una tarjeta de seccion como el resto:
+            // cada gasto ya es una tarjeta y anidarlas dejaba borde sobre borde.
+            // Encabezado suelto y las tarjetas sueltas debajo.
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Gastos recientes',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                if ((expenses.valueOrNull ?? const []).isNotEmpty)
+                  TextButton.icon(
+                    onPressed: () =>
+                        context.push('/groups/${widget.groupId}/expenses'),
+                    icon: const Icon(Icons.list_alt_outlined, size: 18),
+                    label: Text('Ver todos (${expenses.valueOrNull!.length})'),
+                  ),
+              ],
             ),
+            const SizedBox(height: 8),
+            expenses.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (error, stackTrace) =>
+                  const Text('No se pudieron cargar gastos'),
+              data: (items) {
+                if (items.isEmpty) {
+                  return EmptyHint(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'Sin gastos',
+                    message: isAdmin
+                        ? 'Registra el primer gasto con el boton de abajo.'
+                        : 'Cuando el grupo registre un gasto lo veras aqui.',
+                  );
+                }
+                final recent = sortExpensesByRecency(items)
+                    .take(recentExpensesCount)
+                    .toList();
+                return Column(
+                  children: [
+                    for (var index = 0; index < recent.length; index++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: AnimatedSection(
+                          index: index,
+                          child: ExpenseCard(
+                            expense: recent[index],
+                            onTap: () => context.push(
+                              '/groups/${widget.groupId}/expenses/${recent[index].id}',
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (items.length > recent.length)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            context.push('/groups/${widget.groupId}/expenses'),
+                        icon: const Icon(Icons.receipt_long_outlined),
+                        label: Text('Ver los ${items.length} gastos del grupo'),
+                      ),
+                  ],
+                );
+              },
+            ),
+            // El boton flotante de "Gasto" tapa el final de la lista.
+            const SizedBox(height: 72),
           ],
         ),
       ),
@@ -562,52 +575,6 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _confirmCancelExpense(
-    BuildContext context,
-    WidgetRef ref,
-    Expense expense,
-  ) async {
-    final confirmed = await showAppDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Anular gasto'),
-        content: Text(
-          '¿Estás seguro que deseas anular el gasto "${expense.name}"? Esto no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => context.pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton.icon(
-            onPressed: () => context.pop(true),
-            icon: const Icon(Icons.block_outlined),
-            label: const Text('Anular'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-
-    try {
-      await ref.read(apiProvider).cancelExpense(expense.id);
-      invalidateGroup(ref, widget.groupId);
-      ref.invalidate(dashboardSummaryProvider);
-      if (!context.mounted) return;
-      showAchievementSnackBar(
-        context,
-        title: 'Gasto anulado',
-        message: 'Ya no aparecera en los gastos activos',
-        icon: Icons.block_outlined,
-      );
-    } catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo anular el gasto: $error')),
-      );
-    }
   }
 
   void _syncBlockchainRefresh({
@@ -1429,49 +1396,6 @@ class _GroupSummaryCard extends StatelessWidget {
               title: Text(debt.name),
               subtitle: const Text('Debe al grupo'),
               trailing: Text(formatCurrency(debt.amount)),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ExpensePayments extends ConsumerWidget {
-  const _ExpensePayments({required this.expenseId});
-
-  final int expenseId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final payments = ref.watch(expensePaymentsProvider(expenseId));
-    return payments.when(
-      loading: () => const LinearProgressIndicator(),
-      error: (error, stackTrace) =>
-          const ListTile(title: Text('No se cargaron pagos')),
-      data: (items) => Column(
-        children: [
-          for (final payment in items)
-            ListTile(
-              contentPadding: const EdgeInsets.only(left: 16),
-              leading:
-                  Icon(Icons.arrow_forward, color: context.primaryIconColor),
-              title: Text(payment.description),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(payment.confirmed
-                      ? payment.status
-                      : '${payment.status} - sin confirmar'),
-                  const SizedBox(height: 6),
-                  BlockchainHashChip(
-                    hash: payment.blockchainHash,
-                    compact: true,
-                  ),
-                ],
-              ),
-              trailing: Text(formatCurrency(
-                  payment.confirmed ? payment.remaining : payment.amount)),
-              onTap: () => context.push('/payments/${payment.id}'),
             ),
         ],
       ),

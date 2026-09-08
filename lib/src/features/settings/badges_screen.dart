@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/badge_visuals.dart';
+import '../../core/crew.dart';
 import '../../data/models.dart';
 import '../../state/providers.dart';
 import 'badge_progress.dart';
@@ -137,6 +138,19 @@ class _Summary extends StatelessWidget {
                         ),
                   ),
                 ),
+                const Spacer(),
+                // Solo cuando hay algo que celebrar. Con cero insignias un
+                // personaje festejando al lado del cero se lee como burla.
+                //
+                // Vuelve a festejar cuando el numero cambia: quien entra aqui
+                // despues de desbloquear una la ve reaccionar a esa insignia y
+                // no a la pantalla.
+                if (done > 0)
+                  CrewCelebration.cheering(
+                    member: CrewMember.salvador,
+                    height: 72,
+                    restartKey: done,
+                  ),
               ],
             ),
             const SizedBox(height: 12),

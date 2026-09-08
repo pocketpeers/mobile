@@ -4,8 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/crew.dart';
 import '../../state/providers.dart';
-import 'steps/crew_speaker.dart';
 import 'steps/split_step.dart';
 import 'steps/score_step.dart';
 import 'steps/blockchain_step.dart';
@@ -69,12 +69,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               child: PageView(
                 controller: _controller,
                 onPageChanged: (value) => setState(() => _index = value),
-                children: const [
-                  _WelcomeStep(),
-                  SplitStep(),
-                  ScoreStep(),
-                  BlockchainStep(),
-                  _FinishStep(),
+                children: [
+                  const _WelcomeStep(),
+                  const SplitStep(),
+                  const ScoreStep(),
+                  const BlockchainStep(),
+                  // El festejo del ultimo paso arranca cuando se llega, no
+                  // cuando el PageView construye la pagina por adelantado: si
+                  // no, termina antes de que nadie la vea.
+                  _FinishStep(active: isLast),
                 ],
               ),
             ),
@@ -229,7 +232,10 @@ class _WelcomeStep extends StatelessWidget {
   }
 }
 class _FinishStep extends StatelessWidget {
-  const _FinishStep();
+  const _FinishStep({required this.active});
+
+  /// Si el paso esta a la vista. Ver [CrewDuo.restartKey].
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -238,16 +244,10 @@ class _FinishStep extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 12),
-          Container(
-            width: 88,
-            height: 88,
-            decoration: BoxDecoration(
-              color: context.successIconContainerColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.rocket_launch_outlined,
-                size: 44, color: context.successIconColor),
-          ),
+          // Cierra con los mismos dos que abrieron el tutorial, ahora
+          // festejando. Antes habia un cohete: el unico paso que celebra algo
+          // era justo el que no tenia a nadie celebrando.
+          CrewDuo(clip: CrewClip.cheer, restartKey: active),
           const SizedBox(height: 24),
           Text(
             'Eso es todo',

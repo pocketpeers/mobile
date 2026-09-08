@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/app_theme.dart';
-import 'crew_speaker.dart';
+import '../../../core/crew.dart';
 
 /// Estructura comun de los pasos del tutorial.
 ///

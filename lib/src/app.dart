@@ -8,10 +8,12 @@ import 'package:go_router/go_router.dart';
 import 'core/app_motion.dart';
 import 'core/app_theme.dart';
 import 'core/badge_visuals.dart';
+import 'core/crew.dart';
 import 'data/models.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/auth/forgot_password_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
+import 'features/expenses/expense_screens.dart';
 import 'features/groups/group_screens.dart';
 import 'features/operations/operation_screens.dart';
 import 'features/notifications/notifications_screen.dart';
@@ -49,8 +51,7 @@ final _routerProvider = Provider<GoRouter>((ref) {
       // flag. Keeping this logic centralized avoids duplicated guards in every
       // screen.
       final isSplashRoute = state.matchedLocation == '/splash';
-      final isForgotPasswordRoute =
-          state.matchedLocation == '/forgot-password';
+      final isForgotPasswordRoute = state.matchedLocation == '/forgot-password';
       // Recuperar la contraseña es, por definición, algo que se hace sin haber
       // podido iniciar sesión: esa ruta tiene que ser alcanzable sin sesión,
       // igual que la de acceso.
@@ -157,13 +158,40 @@ final _routerProvider = Provider<GoRouter>((ref) {
                     ),
                   ),
                   GoRoute(
-                    path: 'expenses/new',
+                    path: 'expenses',
                     pageBuilder: (context, state) => appTransitionPage(
                       key: state.pageKey,
-                      child: CreateExpenseScreen(
+                      child: GroupExpensesScreen(
                         groupId: int.parse(state.pathParameters['groupId']!),
                       ),
                     ),
+                    routes: [
+                      // 'new' va antes que ':expenseId' a proposito: go_router
+                      // prueba las rutas en orden y sin esto /expenses/new
+                      // entraria al detalle con un id que no existe.
+                      GoRoute(
+                        path: 'new',
+                        pageBuilder: (context, state) => appTransitionPage(
+                          key: state.pageKey,
+                          child: CreateExpenseScreen(
+                            groupId:
+                                int.parse(state.pathParameters['groupId']!),
+                          ),
+                        ),
+                      ),
+                      GoRoute(
+                        path: ':expenseId',
+                        pageBuilder: (context, state) => appTransitionPage(
+                          key: state.pageKey,
+                          child: ExpenseDetailScreen(
+                            groupId:
+                                int.parse(state.pathParameters['groupId']!),
+                            expenseId:
+                                int.parse(state.pathParameters['expenseId']!),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -440,6 +468,13 @@ class _AppShellState extends ConsumerState<AppShell> {
             title: 'Badge desbloqueado',
             message: badge.name,
             icon: badgeIconForCode(badge.code),
+            // Desbloquear una insignia es lo mas parecido a un premio que
+            // tiene la app, y hasta ahora se anunciaba igual que guardar un
+            // cambio. Salvador festeja porque las insignias cuelgan del score,
+            // que es de lo que el habla en el tutorial.
+            leading: const CrewCelebration.jumping(
+              member: CrewMember.salvador,
+            ),
           );
         });
       }

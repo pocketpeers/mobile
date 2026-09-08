@@ -10,7 +10,11 @@ class AppMotion {
   static const curve = Curves.easeOutCubic;
 }
 
-bool _disableAnimations(BuildContext context) {
+/// Si el sistema pidió reducir animaciones.
+///
+/// Público porque no solo lo usan los widgets de este archivo: los personajes
+/// del tutorial también se quedan quietos cuando está activado.
+bool animationsDisabled(BuildContext context) {
   return MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 }
 
@@ -24,7 +28,7 @@ CustomTransitionPage<void> appTransitionPage({
     reverseTransitionDuration: AppMotion.fast,
     child: child,
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      if (_disableAnimations(context)) return child;
+      if (animationsDisabled(context)) return child;
       final curved = CurvedAnimation(parent: animation, curve: AppMotion.curve);
       return ColoredBox(
         color: Theme.of(context).scaffoldBackgroundColor,
@@ -52,7 +56,7 @@ Future<T?> showAppDialog<T>({
     transitionDuration: AppMotion.medium,
     pageBuilder: (context, animation, secondaryAnimation) => builder(context),
     transitionBuilder: (context, animation, secondaryAnimation, child) {
-      if (_disableAnimations(context)) return child;
+      if (animationsDisabled(context)) return child;
       final curved = CurvedAnimation(parent: animation, curve: AppMotion.curve);
       return FadeTransition(
         opacity: curved,
@@ -77,7 +81,7 @@ class AnimatedSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_disableAnimations(context)) return child;
+    if (animationsDisabled(context)) return child;
     final delay = Duration(milliseconds: 45 * index);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -110,7 +114,7 @@ class PulseIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_disableAnimations(context)) {
+    if (animationsDisabled(context)) {
       return Container(
         width: 42,
         height: 42,
@@ -144,11 +148,19 @@ class PulseIcon extends StatelessWidget {
   }
 }
 
+/// Aviso de que algo salió bien.
+///
+/// [leading] reemplaza al ícono cuando lo que pasó merece más que una
+/// confirmación: sirve para meter un personaje festejando sin que este archivo
+/// tenga que saber que los personajes existen. Se usa con cuentagotas, porque
+/// por aquí también pasan avisos que no son un logro (un gasto anulado, un
+/// grupo editado) y ahí un festejo estaría fuera de lugar.
 void showAchievementSnackBar(
   BuildContext context, {
   required String title,
   String? message,
   IconData icon = Icons.emoji_events_outlined,
+  Widget? leading,
 }) {
   final color = context.successIconColor;
   ScaffoldMessenger.of(context).showSnackBar(
@@ -157,7 +169,7 @@ void showAchievementSnackBar(
       duration: const Duration(seconds: 3),
       content: Row(
         children: [
-          PulseIcon(icon: icon, color: color),
+          leading ?? PulseIcon(icon: icon, color: color),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

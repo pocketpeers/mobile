@@ -11,6 +11,15 @@ class AppColors {
   static const darkLine = Color(0xFF214B73);
   static const lightBlue = Color(0xFF74B9F2);
   static const lightGreen = Color(0xFF43A36D);
+
+  /// Ambar y rojo para estados que no son "todo bien": un pago que todavia no
+  /// se hizo y uno que ya se paso de fecha. El resto de la paleta es azul y
+  /// verde, asi que sin estos dos un gasto vencido se veia igual que uno al
+  /// dia.
+  static const amber = Color(0xFF8A5A00);
+  static const lightAmber = Color(0xFFE3A857);
+  static const red = Color(0xFF9B2226);
+  static const lightRed = Color(0xFFE5736F);
 }
 
 extension AppThemeColors on BuildContext {
@@ -29,8 +38,22 @@ extension AppThemeColors on BuildContext {
   Color get primaryIconContainerColor =>
       primaryIconColor.withOpacity(isDarkMode ? 0.18 : 0.10);
 
+  Color get warningIconColor =>
+      isDarkMode ? AppColors.lightAmber : AppColors.amber;
+
+  Color get dangerIconColor => isDarkMode ? AppColors.lightRed : AppColors.red;
+
   Color get successIconContainerColor =>
       successIconColor.withOpacity(isDarkMode ? 0.18 : 0.10);
+
+  Color get warningIconContainerColor =>
+      warningIconColor.withOpacity(isDarkMode ? 0.18 : 0.10);
+
+  Color get dangerIconContainerColor =>
+      dangerIconColor.withOpacity(isDarkMode ? 0.18 : 0.10);
+
+  Color get mutedIconContainerColor =>
+      mutedIconColor.withOpacity(isDarkMode ? 0.14 : 0.08);
 }
 
 class AppTheme {

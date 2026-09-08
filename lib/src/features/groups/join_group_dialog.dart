@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/app_motion.dart';
+import '../../core/crew.dart';
 import '../../core/validators.dart';
 import '../../state/providers.dart';
 
@@ -67,6 +68,7 @@ class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
           title: 'Te uniste al grupo',
           message: 'Ya puedes ver sus gastos y pagos',
           icon: Icons.group_add_outlined,
+          leading: const CrewCelebration.jumping(member: CrewMember.ariana),
         );
         context.pop();
       }

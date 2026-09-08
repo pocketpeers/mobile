@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/blockchain_hash_chip.dart';
+import '../../core/crew.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
@@ -878,6 +879,12 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
           title: 'Pago confirmado',
           message: 'La transacción ha sido confirmada',
           icon: Icons.verified_outlined,
+          // Solo aqui, no en el abono: el abono es avance y la confirmacion es
+          // el final de la deuda. Festejar los dos igual borraria la
+          // diferencia entre ir pagando y haber terminado de pagar.
+          leading: const CrewCelebration.jumping(
+            member: CrewMember.salvador,
+          ),
         );
       }
     } finally {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/app_motion.dart';
 import '../../../core/app_theme.dart';
-import 'crew_speaker.dart';
+import '../../../core/crew.dart';
 import 'step_scaffold.dart';
 
 /// Paso interactivo: cómo se mueve el score.
