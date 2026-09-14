@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
@@ -197,7 +198,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _description = TextEditingController();
-  String _groupPhoto = '';
+
+  // Foto elegida que todavia no se sube. Se manda recien en _save para que
+  // las descartadas no lleguen nunca al servidor.
+  //
+  // No hay campo con el id remoto como en el dialogo de edicion: un grupo que
+  // todavia no existe no puede tener una foto previa, asi que lo unico que
+  // puede haber aqui es un archivo local o nada.
+  XFile? _pendingPhoto;
+
   var _saving = false;
 
   @override
@@ -236,8 +245,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                RemoteAvatar(
-                  imageRef: _groupPhoto,
+                PhotoPreview(
+                  pendingFile: _pendingPhoto,
+                  imageRef: '',
                   fallbackIcon: Icons.group_outlined,
                   size: 56,
                 ),
@@ -282,8 +292,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   Future<void> _pickGroupPhoto() async {
     final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
-    final uploaded = await ref.read(apiProvider).uploadImage(image.path);
-    setState(() => _groupPhoto = uploaded.imageId);
+    // Solo se guarda la referencia local: la subida espera a _save.
+    setState(() => _pendingPhoto = image);
   }
 
   Future<void> _save() async {
@@ -292,11 +302,17 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     if (session == null) return;
     setState(() => _saving = true);
     try {
+      var groupPhoto = '';
+      final pending = _pendingPhoto;
+      if (pending != null) {
+        groupPhoto =
+            (await ref.read(apiProvider).uploadImage(pending.path)).imageId;
+      }
       await ref.read(apiProvider).createGroup(
             name: _name.text.trim(),
             description: _description.text.trim(),
             adminId: session.id,
-            groupPhoto: _groupPhoto,
+            groupPhoto: groupPhoto,
           );
       ref.invalidate(groupsProvider);
       ref.invalidate(myReputationProvider);
@@ -398,16 +414,11 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               loading: () => const LinearProgressIndicator(),
               error: (error, stackTrace) =>
                   Text('No se pudo cargar el grupo: $error'),
-              data: (item) => Row(
-                children: [
-                  RemoteAvatar(
-                    imageRef: item.groupPhoto,
-                    fallbackIcon: Icons.group_outlined,
-                    size: 56,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(item.description)),
-                ],
+              data: (item) => _GroupHeaderCard(
+                group: item,
+                members: members.valueOrNull,
+                expenseCount: expenses.valueOrNull?.length,
+                isAdmin: isAdmin,
               ),
             ),
             const SizedBox(height: 16),
@@ -644,6 +655,11 @@ class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
   late final TextEditingController _name;
   late final TextEditingController _description;
   late String _groupPhoto;
+
+  // Foto elegida que todavia no se sube. Se manda recien en _save para que
+  // las descartadas no lleguen nunca al servidor.
+  XFile? _pendingPhoto;
+
   var _saving = false;
 
   @override
@@ -673,7 +689,8 @@ class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                RemoteAvatar(
+                PhotoPreview(
+                  pendingFile: _pendingPhoto,
                   imageRef: _groupPhoto,
                   fallbackIcon: Icons.group_outlined,
                   size: 72,
@@ -742,28 +759,31 @@ class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
   Future<void> _pickGroupPhoto() async {
     final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
-    setState(() => _saving = true);
-    try {
-      final uploaded = await ref.read(apiProvider).uploadImage(image.path);
-      if (mounted) setState(() => _groupPhoto = uploaded.imageId);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    // Solo se guarda la referencia local: la subida espera a _save. Ya no
+    // hace falta bloquear el formulario, porque elegir dejo de ser una
+    // operacion de red.
+    setState(() => _pendingPhoto = image);
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      var groupPhoto = _groupPhoto;
+      final pending = _pendingPhoto;
+      if (pending != null) {
+        groupPhoto =
+            (await ref.read(apiProvider).uploadImage(pending.path)).imageId;
+      }
       await ref.read(apiProvider).updateGroup(
             groupId: widget.group.id,
             name: _name.text.trim(),
             description: _description.text.trim(),
           );
-      if (_groupPhoto != widget.group.groupPhoto) {
+      if (groupPhoto != widget.group.groupPhoto) {
         await ref.read(apiProvider).updateGroupImage(
               groupId: widget.group.id,
-              image: _groupPhoto,
+              image: groupPhoto,
             );
       }
       invalidateGroup(ref, widget.group.id);
@@ -1321,6 +1341,248 @@ class _EmptyProfileState extends StatelessWidget {
           Icon(Icons.emoji_events_outlined, color: context.primaryIconColor),
           const SizedBox(width: 12),
           const Expanded(child: Text('Aun no tiene badges publicos')),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cabecera del grupo: quien es, de que trata y que tan grande es.
+///
+/// Antes era la foto y la descripcion sueltas en una fila, sin tarjeta. El
+/// nombre vivia solo en la barra superior, asi que la pantalla abria con un
+/// parrafo huerfano y no se distinguia de cualquier otra seccion. Aqui la
+/// identidad del grupo ocupa el lugar que le corresponde: primero quien es,
+/// despues de que trata, y al final su tamano.
+class _GroupHeaderCard extends StatelessWidget {
+  const _GroupHeaderCard({
+    required this.group,
+    required this.members,
+    required this.expenseCount,
+    required this.isAdmin,
+  });
+
+  final Group group;
+
+  // Nulos mientras su provider no haya resuelto. La distincion importa: el
+  // grupo carga por su cuenta y suele llegar antes que los integrantes y los
+  // gastos, asi que una lista vacia aqui significaria "este grupo no tiene a
+  // nadie", que de un grupo con creador es falso. Null significa "todavia no
+  // se sabe", y eso si se puede representar: omitiendo el dato.
+  final List<GroupMember>? members;
+  final int? expenseCount;
+
+  final bool isAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    final description = group.description.trim();
+    final sizeLabel = _sizeLabel();
+    final facepile = members ?? const <GroupMember>[];
+    // Sin ningun dato cargado no se dibuja ni el divisor: una franja vacia
+    // bajo la descripcion se lee como un error, no como una espera.
+    final showFooter = sizeLabel != null || facepile.isNotEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                RemoteAvatar(
+                  imageRef: group.groupPhoto,
+                  fallbackIcon: Icons.group_outlined,
+                  size: 72,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group.name,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              height: 1.15,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      // El rol decide lo que la persona puede hacer aqui
+                      // (crear gastos, editar, ver morosos). Decirlo en la
+                      // cabecera evita que lo deduzca por que botones faltan.
+                      _GroupRoleChip(isAdmin: isAdmin),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                description,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.45,
+                      color: context.mutedIconColor,
+                    ),
+              ),
+            ],
+            if (showFooter) ...[
+              const SizedBox(height: 14),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (facepile.isNotEmpty) ...[
+                    _MemberFacepile(members: facepile),
+                    const SizedBox(width: 10),
+                  ],
+                  if (sizeLabel != null)
+                    Expanded(
+                      child: Text(
+                        sizeLabel,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: context.mutedIconColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Resumen de tamano con lo que se sepa hasta el momento.
+  ///
+  /// Cada mitad se omite por separado mientras su provider no resuelva, en vez
+  /// de rellenarse con un cero. Los dos llegan de peticiones distintas, asi que
+  /// lo normal es que una este lista antes que la otra: mostrar la que ya se
+  /// tiene es mejor que esperar a ambas.
+  ///
+  /// @return null si no se sabe nada todavia, y entonces no hay nada que pintar
+  String? _sizeLabel() {
+    final counts = <String>[
+      if (members case final list?)
+        list.length == 1 ? '1 integrante' : '${list.length} integrantes',
+      if (expenseCount case final count?)
+        count == 1 ? '1 gasto' : '$count gastos',
+    ];
+    return counts.isEmpty ? null : counts.join('  ·  ');
+  }
+}
+
+/// Etiqueta del rol propio dentro del grupo.
+class _GroupRoleChip extends StatelessWidget {
+  const _GroupRoleChip({required this.isAdmin});
+
+  final bool isAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isAdmin ? context.successIconColor : context.primaryIconColor;
+    final container = isAdmin
+        ? context.successIconContainerColor
+        : context.primaryIconContainerColor;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: container,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isAdmin ? Icons.shield_outlined : Icons.person_outline,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            isAdmin ? 'Administrador' : 'Integrante',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Las caras del grupo, superpuestas.
+///
+/// Un numero dice cuantos son; las caras dicen quienes. Se muestran unas pocas
+/// y el resto se resume, porque la lista completa ya vive mas abajo.
+class _MemberFacepile extends StatelessWidget {
+  const _MemberFacepile({required this.members});
+
+  final List<GroupMember> members;
+
+  static const _maxVisible = 4;
+  static const _size = 28.0;
+  static const _step = 19.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = members.take(_maxVisible).toList();
+    final extra = members.length - visible.length;
+    final slots = visible.length + (extra > 0 ? 1 : 0);
+    // El borde toma el color de la tarjeta para que las caras se recorten
+    // entre si en lugar de pegarse.
+    final borderColor =
+        context.isDarkMode ? AppColors.darkSurface : Colors.white;
+
+    return SizedBox(
+      width: (slots - 1) * _step + _size,
+      height: _size,
+      child: Stack(
+        children: [
+          for (var i = 0; i < visible.length; i++)
+            Positioned(
+              left: i * _step,
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: borderColor, width: 2),
+                ),
+                child: RemoteAvatar(
+                  imageRef: visible[i].photo,
+                  fallbackIcon: Icons.person_outline,
+                  size: _size - 4,
+                  borderRadius: (_size - 4) / 2,
+                ),
+              ),
+            ),
+          if (extra > 0)
+            Positioned(
+              left: visible.length * _step,
+              child: Container(
+                width: _size,
+                height: _size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: context.mutedIconContainerColor,
+                  border: Border.all(color: borderColor, width: 2),
+                ),
+                child: Center(
+                  child: Text(
+                    '+$extra',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: context.mutedIconColor,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

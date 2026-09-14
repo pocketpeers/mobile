@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
@@ -298,6 +299,11 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
   late final TextEditingController _phone;
   late final TextEditingController _email;
   String _photo = '';
+
+  // Foto elegida que todavia no se sube. Se manda recien en _save para que
+  // las descartadas no lleguen nunca al servidor.
+  XFile? _pendingPhoto;
+
   var _saving = false;
 
   @override
@@ -333,7 +339,8 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                RemoteAvatar(
+                PhotoPreview(
+                  pendingFile: _pendingPhoto,
                   imageRef: _photo,
                   fallbackIcon: Icons.person_outline,
                   size: 64,
@@ -401,19 +408,24 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
   Future<void> _pickPhoto() async {
     final image = await pickImageFromCameraOrGallery(context);
     if (image == null) return;
-    final uploaded = await ref.read(apiProvider).uploadImage(image.path);
-    setState(() => _photo = uploaded.imageId);
+    // Solo se guarda la referencia local: la subida espera a _save.
+    setState(() => _pendingPhoto = image);
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      var photo = _photo;
+      final pending = _pendingPhoto;
+      if (pending != null) {
+        photo = (await ref.read(apiProvider).uploadImage(pending.path)).imageId;
+      }
       await ref.read(apiProvider).updateMyProfile(
             firstName: _firstName.text.trim(),
             lastName: _lastName.text.trim(),
             phoneNumber: _phone.text.trim(),
-            photo: _photo,
+            photo: photo,
             email: _email.text.trim(),
           );
       ref.invalidate(profileProvider);
