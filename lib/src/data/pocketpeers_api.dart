@@ -486,7 +486,16 @@ class PocketPeersApi {
     final response = await _dio.post<JsonMap>(
       '/api/v1/images',
       data: formData,
-      options: Options(contentType: 'multipart/form-data'),
+      options: Options(
+        contentType: 'multipart/form-data',
+        // El global de 20 s no alcanza para esto. Subir la foto es lo de
+        // menos: al llegar, ImageServiceImpl la decodifica entera a memoria,
+        // la reescala con interpolacion bicubica y la vuelve a codificar a
+        // JPEG. En una maquina rapida eso ya tomo 10.8 s medidos; en el
+        // servidor, con un solo vCPU compartido, es bastante mas.
+        sendTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
+      ),
     );
     return ImageUpload.fromJson(response.data ?? {});
   }
@@ -526,7 +535,22 @@ class PocketPeersApi {
       '/api/v1/ocr-receipt/from-image',
       data: {'imageId': imageId},
       options: Options(
-        receiveTimeout: const Duration(minutes: 3),
+        // 5 minutos y no 3. Medido sobre una boleta real: reconstruir el
+        // pipeline de PaddleOCR 6.7 s, la inferencia 14.6 s y dibujar los
+        // recuadros 2 s, con 22 hilos disponibles. El Space de Hugging Face
+        // corre con 2 vCPU, asi que ahi el mismo trabajo se estira, y si
+        // estaba dormido hay que sumarle el despertar del contenedor.
+        //
+        // Los tres timeouts de la cadena van escalonados de adentro hacia
+        // afuera: backend->OCR 300 s, Caddy->backend 330 s, y este 360 s.
+        //
+        // El orden importa. Si los tres cortaran a la vez, cuando el OCR se
+        // pase del limite el movil abortaria por su cuenta en el mismo
+        // instante en que el backend le esta mandando el error, y la persona
+        // veria un fallo de red generico en vez de "el OCR tardo demasiado".
+        // Dandole mas margen al de afuera, el error del servidor siempre
+        // alcanza a llegar.
+        receiveTimeout: const Duration(minutes: 6),
         sendTimeout: const Duration(seconds: 30),
       ),
     );
