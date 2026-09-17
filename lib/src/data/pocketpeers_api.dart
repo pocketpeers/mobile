@@ -459,6 +459,18 @@ class PocketPeersApi {
     return _list(response.data, Payment.fromJson);
   }
 
+  /// Todos los pagos del grupo en una sola peticion.
+  ///
+  /// El resumen de grupo los juntaba recorriendo los gastos y pidiendo los
+  /// pagos de cada uno, uno tras otro. El costo crecia con el numero de gastos
+  /// y las peticiones iban encadenadas, asi que un grupo con veinte gastos
+  /// hacia veinte viajes al servidor antes de dibujar nada.
+  Future<List<Payment>> getPaymentsByGroup(int groupId) async {
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/payments/group/$groupId');
+    return _list(response.data, Payment.fromJson);
+  }
+
   Future<Payment> getPayment(int paymentId) async {
     final response = await _dio.get<JsonMap>('/api/v1/payments/$paymentId');
     return Payment.fromJson(response.data ?? {});
@@ -506,6 +518,7 @@ class PocketPeersApi {
     required double amount,
     required DateTime issueDate,
     String receiptNumber = '',
+    String issuerRuc = '',
     String imagePath = '',
   }) async {
     final response = await _dio.post<JsonMap>(
@@ -514,6 +527,7 @@ class PocketPeersApi {
         'expenseId': expenseId,
         'name': name,
         'receiptNumber': receiptNumber,
+        'issuerRuc': issuerRuc,
         'amount': amount,
         'issueDate': issueDate.toIso8601String().split('T').first,
         'imagePath': imagePath,

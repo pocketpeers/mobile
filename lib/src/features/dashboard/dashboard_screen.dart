@@ -7,6 +7,7 @@ import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
+import '../../core/skeleton.dart';
 import '../../data/models.dart';
 import 'dashboard_cards.dart';
 import '../../state/providers.dart';
@@ -35,7 +36,7 @@ class DashboardScreen extends ConsumerWidget {
         ],
       ),
       body: summary.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const _DashboardSkeleton(),
         error: (error, stackTrace) => ErrorView(
           title: 'No se pudo cargar el dashboard',
           onRetry: () => ref.invalidate(dashboardSummaryProvider),
@@ -87,6 +88,89 @@ class DashboardScreen extends ConsumerWidget {
             ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Home mientras llega el resumen.
+///
+/// Repite el orden y las medidas de la lista con datos —encabezado, vence
+/// pronto, score, las tres metricas, los dos graficos y las transacciones— para
+/// que al llegar el resumen cada bloque se rellene donde ya estaba, en vez de
+/// aparecer de golpe empujando al resto.
+class _DashboardSkeleton extends StatelessWidget {
+  const _DashboardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: const [
+        // El encabezado no es una tarjeta sino el bloque degradado, asi que va
+        // suelto y con su mismo radio.
+        AppSkeleton(height: 126, radius: 8),
+        SizedBox(height: 16),
+        SkeletonCard(lines: 3),
+        SizedBox(height: 16),
+        SkeletonCard(lines: 2),
+        SizedBox(height: 16),
+        _SkeletonMetricGrid(),
+        SizedBox(height: 16),
+        SkeletonChartCard(height: 160),
+        SizedBox(height: 16),
+        SkeletonChartCard(),
+        SizedBox(height: 16),
+        SkeletonListCard(),
+      ],
+    );
+  }
+}
+
+/// Las tres metricas de dinero, con la rejilla exacta de [_MetricGrid].
+class _SkeletonMetricGrid extends StatelessWidget {
+  const _SkeletonMetricGrid();
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.count(
+      crossAxisCount: 3,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.05,
+      children: const [
+        _SkeletonMetricCard(),
+        _SkeletonMetricCard(),
+        _SkeletonMetricCard(),
+      ],
+    );
+  }
+}
+
+class _SkeletonMetricCard extends StatelessWidget {
+  const _SkeletonMetricCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                AppSkeleton(width: 32, height: 32, radius: 8),
+                SizedBox(width: 8),
+                Expanded(child: AppSkeleton(height: 10)),
+              ],
+            ),
+            AppSkeleton(width: 56, height: 16),
+          ],
         ),
       ),
     );

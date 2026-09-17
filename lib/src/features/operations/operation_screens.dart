@@ -14,6 +14,7 @@ import '../../core/crew.dart';
 import '../../core/formatters.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
+import '../../core/skeleton.dart';
 import '../../core/validators.dart';
 import '../../data/calculations.dart';
 import '../../data/models.dart';
@@ -43,6 +44,13 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   var _selectionTouched = false;
   ReceiptOcr? _ocrReceipt;
   String _receiptImageId = '';
+
+  /// Aviso del backend cuando la boleta leida ya respalda otro gasto.
+  ///
+  /// Mientras no sea nulo el registro queda bloqueado. El control vive en el
+  /// OCR y no en el guardado porque para cuando el guardado falla el gasto y
+  /// sus pagos ya existen, y el rechazo del comprobante no los deshace.
+  String? _duplicateReceiptMessage;
 
   @override
   void initState() {
@@ -111,6 +119,13 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
               onScan: _scanReceipt,
               onClear: _clearReceiptScan,
             ),
+            if (_duplicateReceiptMessage != null) ...[
+              const SizedBox(height: 12),
+              _DuplicateReceiptBanner(
+                message: _duplicateReceiptMessage!,
+                onReplace: _clearReceiptScan,
+              ),
+            ],
             const SizedBox(height: 12),
             SegmentedButton<SplitMode>(
               segments: const [
@@ -150,8 +165,11 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed:
-                  _saving ? null : () => _save(members.valueOrNull ?? const []),
+              // Bloqueado mientras la boleta este marcada como repetida: es el
+              // boton que crea el gasto y reparte los pagos de una sola vez.
+              onPressed: _saving || _duplicateReceiptMessage != null
+                  ? null
+                  : () => _save(members.valueOrNull ?? const []),
               icon: _saving
                   ? const SizedBox.square(
                       dimension: 18,
@@ -206,9 +224,30 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
       final receipt =
           await ref.read(apiProvider).ocrFromImage(uploaded.imageId);
       if (!mounted) return;
+
+      if (receipt.duplicate) {
+        // No se rellena el formulario: esos importes son de un gasto que ya
+        // existe, y copiarlos aqui invitaria a registrarlo de nuevo.
+        setState(() {
+          _receiptImageId = uploadedImageId;
+          _ocrReceipt = receipt;
+          _duplicateReceiptMessage = receipt.duplicateMessage ??
+              'Esta boleta ya esta registrada en otro gasto';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_duplicateReceiptMessage!),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        return;
+      }
+
       setState(() {
         _receiptImageId = uploadedImageId;
         _ocrReceipt = receipt;
+        _duplicateReceiptMessage = null;
         if (receipt.name.trim().isNotEmpty) {
           _name.text = receipt.name.trim();
         }
@@ -224,6 +263,7 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
       setState(() {
         _receiptImageId = uploadedImageId;
         _ocrReceipt = null;
+        _duplicateReceiptMessage = null;
       });
       final isTimeout = error is DioException &&
           (error.type == DioExceptionType.connectionTimeout ||
@@ -249,11 +289,18 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     setState(() {
       _receiptImageId = '';
       _ocrReceipt = null;
+      _duplicateReceiptMessage = null;
     });
   }
 
   Future<void> _save(List<GroupMember> members) async {
     if (!_formKey.currentState!.validate() || members.isEmpty) return;
+    if (_duplicateReceiptMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_duplicateReceiptMessage!)),
+      );
+      return;
+    }
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
     final group = ref.read(groupProvider(widget.groupId)).valueOrNull;
@@ -316,15 +363,28 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             dueDate: _dueDate,
             splits: splits,
           );
-      await _attachReceiptToExpense(expense, amount);
+      final receiptError = await _attachReceiptToExpense(expense, amount);
       invalidateGroup(ref, widget.groupId);
       if (mounted) {
-        showAchievementSnackBar(
-          context,
-          title: 'Gasto creado',
-          message: 'Se generaron los pagos para el grupo',
-          icon: Icons.receipt_long_outlined,
-        );
+        // Un solo mensaje, no dos. Antes el fallo del comprobante mostraba su
+        // aviso y acto seguido salia "Gasto creado", asi que la pantalla se
+        // contradecia a si misma en el caso que mas importa entender.
+        if (receiptError != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(receiptError),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        } else {
+          showAchievementSnackBar(
+            context,
+            title: 'Gasto creado',
+            message: 'Se generaron los pagos para el grupo',
+            icon: Icons.receipt_long_outlined,
+          );
+        }
         context.pop();
       }
     } finally {
@@ -332,15 +392,21 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     }
   }
 
-  Future<void> _attachReceiptToExpense(
+  /// Adjunta el comprobante y devuelve el error si no se pudo, o null si fue
+  /// bien o si no habia nada que adjuntar.
+  ///
+  /// Devuelve en vez de avisar porque quien llama es el unico que sabe que mas
+  /// va a decir: mostrar el fallo aqui dejaba al guardado anunciando exito
+  /// justo despues.
+  Future<String?> _attachReceiptToExpense(
       Expense expense, double expenseAmount) async {
-    if (_receiptImageId.isEmpty) return;
+    if (_receiptImageId.isEmpty) return null;
     final receipt = _ocrReceipt;
     final receiptAmount =
         receipt != null && receipt.amount > 0 ? receipt.amount : expenseAmount;
     // Do not attach OCR data that claims a larger amount than the expense the
     // user just confirmed.
-    if (receiptAmount > expenseAmount) return;
+    if (receiptAmount > expenseAmount) return null;
     try {
       await ref.read(apiProvider).createExpenseReceipt(
             expenseId: expense.id,
@@ -350,16 +416,30 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
             amount: receiptAmount,
             issueDate: receipt?.issueDate ?? DateTime.now(),
             receiptNumber: receipt?.receiptNumber ?? '',
+            issuerRuc: receipt?.issuerRuc ?? '',
             imagePath: _receiptImageId,
           );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-                Text('El gasto se creo, pero no se pudo adjuntar el recibo')),
-      );
+      return null;
+    } catch (error) {
+      return _receiptErrorMessage(error);
     }
+  }
+
+  /// El 409 merece su propio texto.
+  ///
+  /// El backend rechaza el comprobante cuando esa misma boleta ya respalda otro
+  /// gasto, y el mensaje que manda dice cual. Mostrar "no se pudo adjuntar" en
+  /// ese caso ocultaria justamente lo que el usuario necesita saber, y quien
+  /// reuso la boleta sin querer no tendria como darse cuenta.
+  String _receiptErrorMessage(Object error) {
+    if (error is DioException && error.response?.statusCode == 409) {
+      final body = error.response?.data;
+      if (body is Map && body['message'] is String) {
+        return body['message'] as String;
+      }
+      return 'Esa boleta ya esta registrada en otro gasto';
+    }
+    return 'El gasto se creo, pero no se pudo adjuntar el recibo';
   }
 
   Set<int> _selectedIdsFor(List<GroupMember> members) {
@@ -692,6 +772,20 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
           final expense = ref.watch(expenseProvider(item.expenseId));
           _syncBlockchainRefresh(item);
           final expenseOwnerId = expense.valueOrNull?.userId;
+
+          // Quien mira decide que se muestra; los permisos de abajo deciden que
+          // esta habilitado. Son cosas distintas: al deudor que ya cubrio su
+          // deuda hay que seguir mostrandole sus controles, apagados y con el
+          // motivo, mientras que a quien no es el deudor no le sirve de nada
+          // verlos ni siquiera apagados.
+          //
+          // Quien confirma es el creador del gasto, que no siempre coincide con
+          // el administrador del grupo: el backend valida exactamente eso en
+          // ConfirmPaymentCommand, y la vista no debe prometer algo distinto.
+          final isDebtor = session?.id == item.userId;
+          final isExpenseOwner =
+              expenseOwnerId != null && session?.id == expenseOwnerId;
+
           final isCompletedAndConfirmed = item.confirmed && item.remaining <= 0;
           final canRegisterPayment = session?.id == item.userId &&
               !isCompletedAndConfirmed &&
@@ -752,55 +846,65 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              TextField(
-                controller: _amount,
-                enabled: canRegisterPayment,
-                decoration: InputDecoration(
-                  labelText: 'Abono',
-                  helperText: isCompletedAndConfirmed
-                      ? 'Este pago ya fue confirmado por completo'
-                      : canRegisterPayment
-                          ? null
-                          : item.confirmed
-                              ? 'El abono anterior fue confirmado; puedes registrar otro abono parcial'
-                              : 'Solo el deudor puede registrar abonos pendientes',
+              // Abonar y adjuntar evidencia son actos del deudor. A quien no lo
+              // es no se le muestran: antes aparecian apagados, ocupando la
+              // pantalla con acciones que nunca iba a poder ejecutar.
+              if (isDebtor) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _amount,
+                  enabled: canRegisterPayment,
+                  decoration: InputDecoration(
+                    labelText: 'Abono',
+                    helperText: isCompletedAndConfirmed
+                        ? 'Este pago ya fue confirmado por completo'
+                        : canRegisterPayment
+                            ? null
+                            : item.confirmed
+                                ? 'El abono anterior fue confirmado; puedes registrar otro abono parcial'
+                                : 'Ya cubriste el monto; falta que confirmen la recepcion',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: canRegisterPayment ? _pickEvidence : null,
-                icon: const Icon(Icons.image_outlined),
-                label: Text(
-                    _evidence == null ? 'Cargar evidencia' : _evidence!.name),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed:
-                    canRegisterPayment && !_saving ? _registerPayment : null,
-                icon: _saving
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.payments_outlined),
-                label: const Text('Registrar abono'),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.tonalIcon(
-                onPressed: canConfirmPayment && !_confirming
-                    ? () => _confirmPayment(item)
-                    : null,
-                icon: _confirming
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.verified_outlined),
-                label: const Text('Confirmar recepcion'),
-              ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: canRegisterPayment ? _pickEvidence : null,
+                  icon: const Icon(Icons.image_outlined),
+                  label: Text(
+                      _evidence == null ? 'Cargar evidencia' : _evidence!.name),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed:
+                      canRegisterPayment && !_saving ? _registerPayment : null,
+                  icon: _saving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.payments_outlined),
+                  label: const Text('Registrar abono'),
+                ),
+              ],
+              // Confirmar la recepcion es del acreedor. Cuando el creador del
+              // gasto se asigno una cuota a si mismo cumple los dos papeles, y
+              // entonces ve todo.
+              if (isExpenseOwner) ...[
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed: canConfirmPayment && !_confirming
+                      ? () => _confirmPayment(item)
+                      : null,
+                  icon: _confirming
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.verified_outlined),
+                  label: const Text('Confirmar recepcion'),
+                ),
+              ],
             ],
           );
         },
@@ -975,7 +1079,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Reportes')),
       body: dashboard.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const _ReportsSkeleton(),
         error: (error, stackTrace) => ErrorView(
           title: 'No se pudieron cargar reportes',
           onRetry: () => ref.invalidate(dashboardSummaryProvider),
@@ -1195,6 +1299,58 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 }
 
+/// Reportes mientras llega el resumen del panel.
+///
+/// Mismo orden y mismas alturas que la lista con datos: el buscador, el informe
+/// detallado, la torta de distribucion y las transacciones.
+class _ReportsSkeleton extends StatelessWidget {
+  const _ReportsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: const [
+        _SkeletonSearchCard(),
+        SizedBox(height: 16),
+        SkeletonCard(lines: 3),
+        SizedBox(height: 16),
+        SkeletonChartCard(),
+        SizedBox(height: 16),
+        SkeletonListCard(),
+      ],
+    );
+  }
+}
+
+/// El buscador de gastos: el campo y el boton redondo de lupa a su derecha.
+class _SkeletonSearchCard extends StatelessWidget {
+  const _SkeletonSearchCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppSkeleton(width: 120, height: 18),
+            SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: AppSkeleton(height: 48, radius: 8)),
+                SizedBox(width: 8),
+                AppSkeleton(width: 48, height: 48, radius: 999),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.status});
 
@@ -1357,6 +1513,64 @@ class _AmountRow extends StatelessWidget {
             style: TextStyle(
               color: isDark ? Colors.white : AppColors.navy,
               fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Aviso fijo de que la boleta cargada ya respalda otro gasto.
+///
+/// Es un bloque en el formulario y no solo un snackbar porque el snackbar se va
+/// a los pocos segundos y el bloqueo del boton se queda: sin algo permanente,
+/// quien vuelve a la pantalla ve "Registrar gasto" apagado y no sabe por que.
+class _DuplicateReceiptBanner extends StatelessWidget {
+  const _DuplicateReceiptBanner({required this.message, required this.onReplace});
+
+  final String message;
+  final VoidCallback onReplace;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = Theme.of(context).colorScheme.error;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: error.withOpacity(context.isDarkMode ? 0.18 : 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: error.withOpacity(0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.copy_all_outlined, color: error, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Comprobante repetido',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800, color: error),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(message),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onReplace,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Usar otro comprobante'),
             ),
           ),
         ],

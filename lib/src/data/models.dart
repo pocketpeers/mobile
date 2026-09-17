@@ -266,27 +266,53 @@ class ReceiptOcr {
   const ReceiptOcr({
     required this.name,
     required this.receiptNumber,
+    required this.issuerRuc,
     required this.amount,
     required this.imagePath,
     required this.dataFields,
     this.issueDate,
+    this.duplicate = false,
+    this.duplicateMessage,
+    this.duplicateOfExpenseId,
   });
 
   final String name;
   final String receiptNumber;
+
+  /// RUC del emisor leido por el OCR. Viaja de vuelta al registrar el
+  /// comprobante porque, junto con la serie-numero, es la llave con que el
+  /// backend detecta una boleta ya usada en otro gasto.
+  final String issuerRuc;
   final double amount;
   final DateTime? issueDate;
   final String imagePath;
   final Map<String, Object?> dataFields;
 
+  /// Si esta boleta ya respalda otro gasto.
+  ///
+  /// El backend lo resuelve al leer la imagen, que es el ultimo momento en que
+  /// avisar sirve de algo: el paso siguiente crea el gasto y reparte los pagos
+  /// entre el grupo, y deshacer eso ya no es cosa de un boton.
+  final bool duplicate;
+
+  /// Texto del backend, que nombra el gasto donde ya esta registrada.
+  final String? duplicateMessage;
+  final int? duplicateOfExpenseId;
+
   factory ReceiptOcr.fromJson(Map<String, Object?> json) => ReceiptOcr(
         name: json['name']?.toString() ?? '',
         receiptNumber: json['receiptNumber']?.toString() ?? '',
+        issuerRuc: json['issuerRuc']?.toString() ?? '',
         amount: _toDouble(json['amount']),
         issueDate: _toDate(json['issueDate']),
         imagePath: json['imagePath']?.toString() ?? '',
         dataFields:
             Map<String, Object?>.from((json['dataFields'] as Map?) ?? const {}),
+        duplicate: json['duplicate'] == true,
+        duplicateMessage: json['duplicateMessage']?.toString(),
+        duplicateOfExpenseId: json['duplicateOfExpenseId'] == null
+            ? null
+            : _toInt(json['duplicateOfExpenseId']),
       );
 }
 

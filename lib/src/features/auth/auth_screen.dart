@@ -221,14 +221,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           ),
                         ),
                         // Solo se ofrece al iniciar sesion: durante el registro
-                        // no hay ninguna contrasena que recuperar todavia.
+                        // no hay ninguna contraseña que recuperar todavia.
                         if (!_isRegistering)
                           TextButton(
                             onPressed: auth.isLoading
                                 ? null
                                 : () => context.push('/forgot-password'),
                             child: Text(
-                              'Olvide mi contrasena',
+                              'Olvidé mi contraseña',
                               style: TextStyle(
                                 color: isDark
                                     ? Colors.white.withOpacity(0.72)

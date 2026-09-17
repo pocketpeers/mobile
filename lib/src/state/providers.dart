@@ -141,26 +141,40 @@ final expensePaymentsProvider =
   return ref.read(apiProvider).getPaymentsByExpense(expenseId);
 });
 
+/// Recibos adjuntos a un gasto.
+///
+/// El recibo se escanea al crear el gasto y hasta ahora solo lo veia quien lo
+/// cargo. Quienes quedan con una deuda del gasto necesitan poder revisar el
+/// comprobante para saber que estan pagando.
+final expenseReceiptsProvider =
+    FutureProvider.family<List<Receipt>, int>((ref, expenseId) {
+  return ref.read(apiProvider).getReceiptsByExpense(expenseId);
+});
+
 final allGroupPaymentsProvider =
-    FutureProvider.family<List<Payment>, int>((ref, groupId) async {
-  // Payments are exposed by expense in the backend, so this provider composes
-  // all expense-level requests into one group-level view for summaries.
-  final expenses = await ref.watch(groupExpensesProvider(groupId).future);
-  final payments = <Payment>[];
-  for (final expense in expenses) {
-    payments
-        .addAll(await ref.read(apiProvider).getPaymentsByExpense(expense.id));
-  }
-  return payments;
+    FutureProvider.family<List<Payment>, int>((ref, groupId) {
+  // Una peticion. Antes se recorrian los gastos pidiendo los pagos de cada uno
+  // con un await dentro del bucle, de modo que el costo crecia con el numero de
+  // gastos y ademas iba en serie: cada peticion esperaba a la anterior.
+  return ref.read(apiProvider).getPaymentsByGroup(groupId);
 });
 
 final groupSummaryProvider =
     FutureProvider.family<GroupSummary, int>((ref, groupId) async {
-  final members = await ref.watch(groupMembersProvider(groupId).future);
-  final expenses = await ref.watch(groupExpensesProvider(groupId).future);
-  final payments = await ref.watch(allGroupPaymentsProvider(groupId).future);
+  // Las tres en paralelo. Encadenarlas con awaits sucesivos sumaba tres viajes
+  // de ida y vuelta para datos que no dependen entre si; ahora que los pagos ya
+  // no salen de los gastos, nada obliga a esperar.
+  final results = await Future.wait([
+    ref.watch(groupMembersProvider(groupId).future),
+    ref.watch(groupExpensesProvider(groupId).future),
+    ref.watch(allGroupPaymentsProvider(groupId).future),
+  ]);
+
   return summarizeGroup(
-      members: members, expenses: expenses, payments: payments);
+    members: results[0] as List<GroupMember>,
+    expenses: results[1] as List<Expense>,
+    payments: results[2] as List<Payment>,
+  );
 });
 
 final paymentProvider = FutureProvider.family<Payment, int>((ref, paymentId) {

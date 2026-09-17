@@ -12,6 +12,7 @@ import '../../core/app_theme.dart';
 import '../../core/badge_visuals.dart';
 import '../../core/crew.dart';
 import '../../core/formatters.dart';
+import '../../core/skeleton.dart';
 import '../../core/image_source_picker.dart';
 import '../../core/remote_image.dart';
 import '../../core/validators.dart';
@@ -411,7 +412,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             group.when(
-              loading: () => const LinearProgressIndicator(),
+              loading: () => const SkeletonCard(lines: 2),
               error: (error, stackTrace) =>
                   Text('No se pudo cargar el grupo: $error'),
               data: (item) => _GroupHeaderCard(
@@ -423,7 +424,9 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             ),
             const SizedBox(height: 16),
             summary.when(
-              loading: () => const LinearProgressIndicator(),
+              // Imita la rosca y sus cifras: al llegar los datos nada se
+              // recoloca, solo se rellena.
+              loading: () => const SkeletonSummaryCard(),
               error: (error, stackTrace) =>
                   Text('No se pudo calcular el resumen: $error'),
               data: (item) => _GroupSummaryCard(summary: item),
@@ -433,7 +436,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               _SectionCard(
                 title: 'Pagos vencidos',
                 child: overdueMembers.when(
-                  loading: () => const LinearProgressIndicator(),
+                  loading: () => const SkeletonList(rows: 2),
                   error: (error, stackTrace) =>
                       const Text('No se pudieron cargar los pagos vencidos'),
                   data: (items) => _OverdueMembersList(
@@ -447,7 +450,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             _SectionCard(
               title: 'Ranking',
               child: leaderboard.when(
-                loading: () => const LinearProgressIndicator(),
+                loading: () => const SkeletonList(),
                 error: (error, stackTrace) =>
                     const Text('No se pudo cargar el ranking'),
                 data: (items) =>
@@ -458,7 +461,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             _SectionCard(
               title: 'Integrantes',
               child: members.when(
-                loading: () => const LinearProgressIndicator(),
+                loading: () => const SkeletonList(),
                 error: (error, stackTrace) =>
                     Text('No se pudieron cargar integrantes'),
                 data: (items) => Column(
@@ -506,7 +509,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             ),
             const SizedBox(height: 8),
             expenses.when(
-              loading: () => const LinearProgressIndicator(),
+              loading: () => const SkeletonList(rows: 2),
               error: (error, stackTrace) =>
                   const Text('No se pudieron cargar gastos'),
               data: (items) {

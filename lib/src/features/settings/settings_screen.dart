@@ -142,7 +142,7 @@ class SettingsScreen extends ConsumerWidget {
                   ListTile(
                     leading: Icon(Icons.password_outlined,
                         color: context.primaryIconColor),
-                    title: const Text('Cambiar contrasena'),
+                    title: const Text('Cambiar contraseña'),
                     subtitle: const Text('Actualiza tu clave de acceso'),
                     onTap: () => context.push('/settings/password'),
                   ),

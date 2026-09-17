@@ -680,32 +680,28 @@ class ExpenseDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
-  static const _blockchainRefreshInterval = Duration(seconds: 3);
-  static const _maxBlockchainRefreshAttempts = 12;
-
-  Timer? _blockchainRefreshTimer;
-  var _blockchainRefreshLimitReached = false;
-  var _blockchainRefreshAttempts = 0;
-
-  @override
-  void dispose() {
-    _blockchainRefreshTimer?.cancel();
-    super.dispose();
+  /// Vuelve a pedir el gasto y sus pagos para ver si ya llego el hash.
+  ///
+  /// Reemplaza al temporizador que consultaba cada tres segundos hasta doce
+  /// veces. Aquel se rendia a los 36 s aunque el backend admite hasta 90 s
+  /// esperando la confirmacion de Solana, asi que en las confirmaciones lentas
+  /// gastaba 24 peticiones y terminaba mostrando "Pendiente" de todos modos.
+  /// Ahora la consulta la dispara quien mira, tocando el chip.
+  void _refreshBlockchainHashes() {
+    ref.invalidate(expenseProvider(widget.expenseId));
+    ref.invalidate(expensePaymentsProvider(widget.expenseId));
   }
 
   @override
   Widget build(BuildContext context) {
     final expense = ref.watch(expenseProvider(widget.expenseId));
     final payments = ref.watch(expensePaymentsProvider(widget.expenseId));
+    final receipts = ref.watch(expenseReceiptsProvider(widget.expenseId));
     final members = ref.watch(groupMembersProvider(widget.groupId));
     final group = ref.watch(groupProvider(widget.groupId));
     final session = ref.watch(authControllerProvider).valueOrNull;
     final item = expense.valueOrNull;
     final isAdmin = group.valueOrNull?.adminId == session?.id;
-    _syncBlockchainRefresh(
-      expense: item,
-      payments: payments.valueOrNull ?? const [],
-    );
 
     return Scaffold(
       appBar: AppBar(
@@ -734,14 +730,37 @@ class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
           onRefresh: () async {
             ref.invalidate(expenseProvider(widget.expenseId));
             ref.invalidate(expensePaymentsProvider(widget.expenseId));
+            ref.invalidate(expenseReceiptsProvider(widget.expenseId));
           },
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              AnimatedSection(child: _ExpenseHeaderCard(expense: expenseItem)),
+              AnimatedSection(
+                child: _ExpenseHeaderCard(
+                  expense: expenseItem,
+                  onRefreshHash: _refreshBlockchainHashes,
+                ),
+              ),
+              // El recibo va antes del reparto: quien abre el gasto porque le
+              // toca pagar algo primero quiere ver el comprobante y despues
+              // cuanto le corresponde.
+              ...receipts.maybeWhen(
+                data: (items) => items.isEmpty
+                    ? const <Widget>[]
+                    : <Widget>[
+                        const SizedBox(height: 16),
+                        AnimatedSection(
+                          index: 1,
+                          child: _ExpenseReceiptsCard(receipts: items),
+                        ),
+                      ],
+                // Un recibo que no carga no puede tapar las deudas, que son el
+                // motivo principal de entrar aqui.
+                orElse: () => const <Widget>[],
+              ),
               const SizedBox(height: 16),
               AnimatedSection(
-                index: 1,
+                index: 2,
                 child: Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -832,52 +851,13 @@ class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
     return sorted;
   }
 
-  void _syncBlockchainRefresh({
-    required Expense? expense,
-    required List<Payment> payments,
-  }) {
-    // El hash llega despues, cuando el backend termina de escribir en la
-    // cadena. Se refresca un rato y se corta, para no dejar un timer vivo si
-    // la escritura nunca llega.
-    final pending = (expense?.blockchainHash.trim().isEmpty ?? false) ||
-        payments.any((payment) => payment.blockchainHash.trim().isEmpty);
-    if (!pending) {
-      _stopBlockchainRefresh();
-      _blockchainRefreshLimitReached = false;
-      return;
-    }
-    if (_blockchainRefreshLimitReached || _blockchainRefreshTimer != null) {
-      return;
-    }
-    _blockchainRefreshAttempts = 0;
-    _blockchainRefreshTimer = Timer.periodic(
-      _blockchainRefreshInterval,
-      (_) => _refreshPendingBlockchainHashes(),
-    );
-  }
-
-  void _refreshPendingBlockchainHashes() {
-    if (!mounted) return;
-    _blockchainRefreshAttempts++;
-    ref.invalidate(expenseProvider(widget.expenseId));
-    ref.invalidate(expensePaymentsProvider(widget.expenseId));
-    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
-      _blockchainRefreshLimitReached = true;
-      _stopBlockchainRefresh();
-    }
-  }
-
-  void _stopBlockchainRefresh() {
-    _blockchainRefreshTimer?.cancel();
-    _blockchainRefreshTimer = null;
-    _blockchainRefreshAttempts = 0;
-  }
 }
 
 class _ExpenseHeaderCard extends StatelessWidget {
-  const _ExpenseHeaderCard({required this.expense});
+  const _ExpenseHeaderCard({required this.expense, this.onRefreshHash});
 
   final Expense expense;
+  final VoidCallback? onRefreshHash;
 
   @override
   Widget build(BuildContext context) {
@@ -953,7 +933,10 @@ class _ExpenseHeaderCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                BlockchainHashChip(hash: expense.blockchainHash),
+                BlockchainHashChip(
+                  hash: expense.blockchainHash,
+                  onRefresh: onRefreshHash,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -991,6 +974,141 @@ class _ExpenseHeaderCard extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Comprobantes escaneados del gasto.
+///
+/// Hasta ahora el recibo solo existia en el formulario de creacion: se leia con
+/// OCR, rellenaba los campos y desaparecia. Quien quedaba con una deuda tenia
+/// que creerle al monto sin poder ver de donde salia. Mostrarlo aqui deja el
+/// comprobante al alcance de todos los asignados al gasto.
+class _ExpenseReceiptsCard extends StatelessWidget {
+  const _ExpenseReceiptsCard({required this.receipts});
+
+  final List<Receipt> receipts;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    receipts.length == 1 ? 'Recibo' : 'Recibos',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                if (receipts.length > 1)
+                  Text(
+                    '${receipts.length} comprobantes',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.mutedIconColor,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Comprobante leido con OCR al registrar el gasto. Toca la imagen para verla completa.',
+              style: TextStyle(fontSize: 12, color: context.mutedIconColor),
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < receipts.length; index++)
+              _ReceiptRow(
+                receipt: receipts[index],
+                isLast: index == receipts.length - 1,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptRow extends StatelessWidget {
+  const _ReceiptRow({required this.receipt, required this.isLast});
+
+  final Receipt receipt;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = remoteImageUrl(receipt.imagePath);
+    final title = receipt.name.trim().isEmpty ? 'Recibo' : receipt.name.trim();
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            // Sin imagen no hay nada que ampliar: el toque no hace nada en vez
+            // de abrir un dialogo vacio.
+            onTap: url == null ? null : () => _openFullImage(context, url),
+            child: RemoteAvatar(
+              imageRef: receipt.imagePath,
+              fallbackIcon: Icons.receipt_long_outlined,
+              size: 64,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(label: Text(formatCurrency(receipt.amount))),
+                    if (receipt.issueDate != null)
+                      Chip(label: Text(formatDate(receipt.issueDate))),
+                    if (receipt.receiptNumber.trim().isNotEmpty)
+                      Chip(label: Text('N ${receipt.receiptNumber.trim()}')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openFullImage(BuildContext context, String url) {
+    showAppDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: InteractiveViewer(
+            // El texto de un recibo es chico: sin zoom la vista ampliada sigue
+            // sin dejar leer el detalle de los items.
+            maxScale: 4,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('No se pudo cargar la imagen del recibo'),
+              ),
+            ),
+          ),
         ),
       ),
     );
