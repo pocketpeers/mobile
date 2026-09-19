@@ -316,6 +316,34 @@ class ReceiptOcr {
       );
 }
 
+/// Cuanto le falta al grupo para tener todo registrado en cadena.
+///
+/// Es lo que la pantalla de grupo consulta mientras espera los hashes. Antes
+/// para saberlo recargaba la lista de gastos, la de pagos, el resumen y, por
+/// cada gasto, el gasto y sus pagos: con diez gastos, veintitres peticiones
+/// cada tres segundos. Aqui es una, y los datos de verdad se recargan una sola
+/// vez cuando [pending] llega a cero.
+class BlockchainStatus {
+  const BlockchainStatus({
+    required this.pendingExpenses,
+    required this.pendingPayments,
+    required this.pending,
+  });
+
+  final int pendingExpenses;
+  final int pendingPayments;
+  final int pending;
+
+  bool get settled => pending == 0;
+
+  factory BlockchainStatus.fromJson(Map<String, Object?> json) =>
+      BlockchainStatus(
+        pendingExpenses: _toInt(json['pendingExpenses']),
+        pendingPayments: _toInt(json['pendingPayments']),
+        pending: _toInt(json['pending']),
+      );
+}
+
 class ImageUpload {
   const ImageUpload(this.imageId);
 

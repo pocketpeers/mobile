@@ -26,6 +26,14 @@ IconData badgeIconForCode(String code) {
       return Icons.workspace_premium_outlined;
     case 'GOLD_LEVEL':
       return Icons.emoji_events_outlined;
+    case 'RECEIPT_KEEPER':
+      return Icons.receipt_long_outlined;
+    case 'CONFIRMED_PAYER':
+      return Icons.handshake_outlined;
+    case 'COMEBACK':
+      return Icons.restart_alt_outlined;
+    case 'PERFECT_MONTH':
+      return Icons.event_available_outlined;
     default:
       return Icons.military_tech_outlined;
   }
@@ -53,6 +61,14 @@ Color badgeColorForCode(BuildContext context, String code) {
       return isDark ? Colors.blueGrey.shade100 : Colors.blueGrey.shade600;
     case 'GOLD_LEVEL':
       return isDark ? Colors.yellowAccent.shade100 : Colors.amber.shade700;
+    case 'RECEIPT_KEEPER':
+      return isDark ? Colors.blueAccent.shade100 : Colors.blue.shade700;
+    case 'CONFIRMED_PAYER':
+      return isDark ? Colors.cyanAccent.shade100 : Colors.cyan.shade700;
+    case 'COMEBACK':
+      return isDark ? Colors.pinkAccent.shade100 : Colors.pink.shade600;
+    case 'PERFECT_MONTH':
+      return isDark ? Colors.indigoAccent.shade100 : Colors.indigo.shade600;
     case 'FIRST_PAYMENT':
     default:
       return context.successIconColor;

@@ -40,6 +40,13 @@ class BadgeProgress {
 /// anticipación y «Historial limpio» de cerrar el mes sin deudas. Esas no tienen
 /// un contador que avance, así que devuelven null y se muestran solo con su
 /// condición escrita. Inventarles una barra seria mentir sobre el avance.
+///
+/// Las cuatro insignias nuevas caen en el mismo grupo, por razones distintas.
+/// «Con papel en mano» y «Palabra cumplida» se cuentan con eventos que este
+/// modelo no trae. «Mes impecable» se resuelve sobre una ventana de treinta
+/// días y no sobre un contador. Y «Segunda oportunidad» exige haberse atrasado
+/// alguna vez: sin ese dato, mostrarle «te faltan 5 pagos puntuales» a quien
+/// nunca cayó le prometería una insignia que no puede ganar.
 BadgeProgress? progressFor(PblBadge badge, Reputation? reputation) {
   if (badge.unlocked || reputation == null) return null;
 

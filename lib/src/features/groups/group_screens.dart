@@ -619,9 +619,46 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
   bool _paymentHashPending(Payment payment) =>
       payment.blockchainHash.trim().isEmpty;
 
-  void _refreshPendingBlockchainHashes() {
+  /// Pregunta al backend si ya esta todo en cadena, y solo entonces recarga.
+  ///
+  /// Antes cada ciclo invalidaba la lista de gastos, la de pagos, el resumen y,
+  /// por cada gasto, el gasto y sus pagos. Con diez gastos eran veintitres
+  /// peticiones cada tres segundos y por usuario, y cada gasto resolvia su hash
+  /// con una consulta propia en el servidor. Ahora el ciclo es una peticion que
+  /// devuelve dos enteros, y la recarga completa ocurre una sola vez.
+  Future<void> _refreshPendingBlockchainHashes() async {
     if (!mounted) return;
     _blockchainRefreshAttempts++;
+
+    var settled = false;
+    try {
+      final status =
+          await ref.read(apiProvider).getGroupBlockchainStatus(widget.groupId);
+      settled = status.settled;
+    } catch (_) {
+      // Un fallo del sondeo no interrumpe la espera: puede ser un corte de red
+      // pasajero y el siguiente ciclo llega en tres segundos. Lo que si para la
+      // espera es agotar los intentos, igual que antes.
+    }
+    if (!mounted) return;
+
+    if (settled) {
+      _reloadGroupData();
+      _stopBlockchainRefresh();
+      _blockchainRefreshLimitReached = false;
+      return;
+    }
+
+    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
+      // Se recarga igual al rendirse: puede que haya llegado parte de los
+      // hashes, y dejar la pantalla con datos viejos seria peor que mostrarlos.
+      _reloadGroupData();
+      _blockchainRefreshLimitReached = true;
+      _stopBlockchainRefresh();
+    }
+  }
+
+  void _reloadGroupData() {
     final expenses =
         ref.read(groupExpensesProvider(widget.groupId)).valueOrNull ?? const [];
     ref.invalidate(groupExpensesProvider(widget.groupId));
@@ -630,10 +667,6 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     for (final expense in expenses) {
       ref.invalidate(expenseProvider(expense.id));
       ref.invalidate(expensePaymentsProvider(expense.id));
-    }
-    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
-      _blockchainRefreshLimitReached = true;
-      _stopBlockchainRefresh();
     }
   }
 

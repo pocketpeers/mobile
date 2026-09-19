@@ -349,6 +349,19 @@ class PocketPeersApi {
         .toList();
   }
 
+  /// Sondeo ligero: cuantos gastos y pagos del grupo faltan por registrarse.
+  ///
+  /// Sustituye a recargarlo todo para averiguar lo mismo. Con el temporizador
+  /// de la pantalla de grupo corriendo cada tres segundos y varios usuarios a
+  /// la vez, la diferencia entre una peticion y veintitres deja de ser un
+  /// detalle.
+  Future<BlockchainStatus> getGroupBlockchainStatus(int groupId) async {
+    final response = await _dio.get<JsonMap>(
+      '/api/v1/expenses/groupId/$groupId/blockchain-status',
+    );
+    return BlockchainStatus.fromJson(response.data ?? {});
+  }
+
   Future<List<Expense>> searchExpenses(String name) async {
     final response = await _dio.get<List<dynamic>>(
       '/api/v1/expenses/search',
