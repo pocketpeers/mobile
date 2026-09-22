@@ -4,10 +4,27 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <!--
+        allowBackup queda desactivado a proposito, y no por privacidad.
+
+        Android respalda y restaura los datos de la aplicacion por defecto,
+        incluidos los valores cifrados de flutter_secure_storage. La clave que
+        los descifra vive en el Keystore, pertenece al dispositivo y NO se
+        respalda. Al restaurar vuelven los datos sin su clave, y desde ese
+        momento cada lectura del token falla con un error de descifrado: la app
+        no puede autenticarse, no se recupera sola, y solo se arregla
+        desinstalandola.
+
+        Es un fallo que no se reproduce en el telefono del desarrollador y si en
+        el de quien restauro una copia o cambio de equipo, que es exactamente la
+        poblacion de un estudio de campo.
+    -->
     <application
         android:label="PocketPeers"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -30,6 +47,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!--
+            Pantalla de recorte de image_cropper. Sin declararla aqui el plugin
+            compila igual y falla en tiempo de ejecucion al abrirla: la foto se
+            elige, no pasa nada visible y no hay error en pantalla.
+        -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

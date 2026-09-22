@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/refresh_on_return.dart';
+import '../../core/metric_card_extent.dart';
 import '../../core/badge_visuals.dart';
 import '../../core/crew.dart';
 import '../../core/formatters.dart';
@@ -291,7 +293,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 
   Future<void> _pickGroupPhoto() async {
-    final image = await pickImageFromCameraOrGallery(context);
+    final image = await pickImageFromCameraOrGallery(context, cropToSquare: true);
     if (image == null) return;
     // Solo se guarda la referencia local: la subida espera a _save.
     setState(() => _pendingPhoto = image);
@@ -347,7 +349,16 @@ class GroupDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<GroupDetailScreen> createState() => _GroupDetailScreenState();
 }
 
-class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
+class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
+    with RefreshOnReturn {
+  /// Al volver de un gasto o de una deuda, recarga el grupo entero.
+  ///
+  /// Es la pantalla que mas se queda desactualizada: se entra a un gasto, se
+  /// confirma un pago y al volver el saldo, el ranking y los morosos seguian
+  /// mostrando lo de antes.
+  @override
+  void onReturnToScreen() => invalidateGroup(ref, widget.groupId);
+
   static const _blockchainRefreshInterval = Duration(seconds: 3);
   static const _maxBlockchainRefreshAttempts = 20;
 
@@ -391,21 +402,27 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               ),
               icon: const Icon(Icons.edit_outlined),
             ),
-          IconButton(
-            tooltip: 'Invitacion',
-            onPressed: () => _showInvitation(context, ref),
-            icon: const Icon(Icons.ios_share_outlined),
-          ),
+          // Generar la invitacion es potestad del administrador, y el backend
+          // ya lo exige. Mostrar el boton a todos solo producia un dialogo que
+          // no abria nunca: quien no administra pulsaba y no pasaba nada, sin
+          // ninguna pista de por que.
+          if (isAdmin)
+            IconButton(
+              tooltip: 'Invitacion',
+              onPressed: () => _showInvitation(context, ref),
+              icon: const Icon(Icons.ios_share_outlined),
+            ),
         ],
       ),
-      floatingActionButton: isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: () =>
-                  context.push('/groups/${widget.groupId}/expenses/new'),
-              icon: const Icon(Icons.add_card_outlined),
-              label: const Text('Gasto'),
-            )
-          : null,
+      // Cualquier integrante puede registrar un gasto. Esta pantalla se quedo
+      // con el gate del administrador cuando se quito en la lista de gastos, y
+      // como es la vista principal del grupo, para un miembro el boton
+      // simplemente no existia.
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/groups/${widget.groupId}/expenses/new'),
+        icon: const Icon(Icons.add_card_outlined),
+        label: const Text('Gasto'),
+      ),
       body: RefreshIndicator(
         onRefresh: () async => invalidateGroup(ref, widget.groupId),
         child: ListView(
@@ -514,12 +531,15 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   const Text('No se pudieron cargar gastos'),
               data: (items) {
                 if (items.isEmpty) {
-                  return EmptyHint(
+                  // Ya no depende del rol: cualquier integrante puede
+                  // registrar el primero. Decirle a un miembro que espere a
+                  // que otro lo haga era justo lo contrario de lo que
+                  // interesa, porque quien nunca crea un gasto tampoco
+                  // acumula contrapartes propias para su historial.
+                  return const EmptyHint(
                     icon: Icons.receipt_long_outlined,
                     title: 'Sin gastos',
-                    message: isAdmin
-                        ? 'Registra el primer gasto con el boton de abajo.'
-                        : 'Cuando el grupo registre un gasto lo veras aqui.',
+                    message: 'Registra el primer gasto con el boton de abajo.',
                   );
                 }
                 final recent = sortExpensesByRecency(items)
@@ -793,7 +813,7 @@ class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
   }
 
   Future<void> _pickGroupPhoto() async {
-    final image = await pickImageFromCameraOrGallery(context);
+    final image = await pickImageFromCameraOrGallery(context, cropToSquare: true);
     if (image == null) return;
     // Solo se guarda la referencia local: la subida espera a _save. Ya no
     // hace falta bloquear el formulario, porque elegir dejo de ser una
@@ -961,6 +981,10 @@ class _OverdueMemberDebtsDialogState
 
   Future<void> _sendReminder() async {
     setState(() => _sending = true);
+    // El messenger se resuelve antes de cerrar el diálogo. Después de cerrarlo
+    // este context deja de estar montado, y pedirlo entonces haría que el aviso
+    // no llegue a mostrarse nunca.
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final result = await ref.read(apiProvider).sendManualOverdueReminder(
             groupId: widget.groupId,
@@ -970,17 +994,17 @@ class _OverdueMemberDebtsDialogState
       ref.invalidate(overdueMemberDebtsProvider(
         (groupId: widget.groupId, memberId: widget.member.userId),
       ));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.message)),
-        );
-      }
+      // El diálogo se cierra al enviar: tapaba el aviso, y dejarlo abierto tras
+      // un envío correcto invita a pulsar otra vez y mandarle al integrante el
+      // mismo recordatorio dos veces.
+      if (mounted) context.pop();
+      messenger.showSnackBar(SnackBar(content: Text(result.message)));
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo enviar el recordatorio: $error')),
-        );
-      }
+      // Si falla, el diálogo se queda abierto a propósito: así se puede
+      // reintentar sin volver a buscar al integrante en la lista.
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo enviar el recordatorio: $error')),
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -1284,7 +1308,10 @@ class _PublicProfileStats extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
-              childAspectRatio: 1.65,
+              // "Pagos en grupo" se parte en dos lineas y con la proporcion
+              // fija no cabia: desbordaba por unos pocos pixeles, y solo en los
+              // telefonos donde la cuenta no salia justa.
+              mainAxisExtent: metricCardExtent(context, labelLines: 2),
               children: [
                 MetricCard(
                   label: 'Score',
@@ -1444,9 +1471,10 @@ class _GroupHeaderCard extends StatelessWidget {
                             ),
                       ),
                       const SizedBox(height: 8),
-                      // El rol decide lo que la persona puede hacer aqui
-                      // (crear gastos, editar, ver morosos). Decirlo en la
-                      // cabecera evita que lo deduzca por que botones faltan.
+                      // El rol ya no decide quien crea gastos —eso lo puede
+                      // hacer cualquier integrante—, pero si quien edita el
+                      // grupo, lo invita y ve a los morosos. Decirlo en la
+                      // cabecera evita que se deduzca por que botones faltan.
                       _GroupRoleChip(isAdmin: isAdmin),
                     ],
                   ),
@@ -1640,7 +1668,7 @@ class _GroupSummaryCard extends StatelessWidget {
             crossAxisCount: 3,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: 1.35,
+            mainAxisExtent: metricCardExtent(context, labelLines: 1),
             crossAxisSpacing: 8,
             children: [
               MetricCard(

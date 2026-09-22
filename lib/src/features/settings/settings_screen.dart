@@ -327,6 +327,16 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
     super.dispose();
   }
 
+  /// Etiqueta legible del tipo que devuelve el backend.
+  ///
+  /// Solo 'CE' necesita traduccion: las otras dos siglas se leen igual de bien
+  /// tal cual y desarrollarlas solo alargaria la etiqueta.
+  static String _documentLabel(String? type) => switch (type) {
+        'CE' => 'Carné de extranjería',
+        null => 'Documento de identidad',
+        _ => type,
+      };
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -382,6 +392,22 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
                   keyboardType: TextInputType.emailAddress,
                   validator: emailField,
                 ),
+                // El documento se muestra pero no se edita: es lo que acredita
+                // que detras de esta cuenta hay una persona concreta, y si
+                // pudiera cambiarse despues del registro ese vinculo dejaria de
+                // valer. Las cuentas anteriores a que se pidiera no lo tienen,
+                // de ahi que la fila desaparezca en vez de salir vacia.
+                if (widget.profile.documentNumber != null) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    enabled: false,
+                    initialValue: widget.profile.documentNumber,
+                    decoration: InputDecoration(
+                      labelText: _documentLabel(widget.profile.documentType),
+                      helperText: 'No se puede modificar',
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -406,7 +432,7 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
   }
 
   Future<void> _pickPhoto() async {
-    final image = await pickImageFromCameraOrGallery(context);
+    final image = await pickImageFromCameraOrGallery(context, cropToSquare: true);
     if (image == null) return;
     // Solo se guarda la referencia local: la subida espera a _save.
     setState(() => _pendingPhoto = image);

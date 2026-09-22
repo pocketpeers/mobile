@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/bounded_poller.dart';
 import '../../core/blockchain_hash_chip.dart';
 import '../../core/crew.dart';
 import '../../core/formatters.dart';
@@ -73,14 +74,9 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   Widget build(BuildContext context) {
     final members = ref.watch(groupMembersProvider(widget.groupId));
     final group = ref.watch(groupProvider(widget.groupId));
-    final session = ref.watch(authControllerProvider).valueOrNull;
-    final isAdmin = group.valueOrNull?.adminId == session?.id;
     final Widget body;
     if (group.isLoading) {
       body = const Center(child: CircularProgressIndicator());
-    } else if (!isAdmin) {
-      body =
-          const Center(child: Text('Solo el administrador puede crear gastos'));
     } else {
       body = Form(
         key: _formKey,
@@ -303,14 +299,6 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
     }
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
-    final group = ref.read(groupProvider(widget.groupId)).valueOrNull;
-    if (group?.adminId != session.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Solo el administrador puede crear gastos')),
-      );
-      return;
-    }
     final amount = _parsedAmount;
     final selectedIds = _selectedIdsFor(members);
     final selectedMembers =
@@ -737,23 +725,41 @@ class PaymentDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
-  static const _blockchainRefreshInterval = Duration(seconds: 3);
-  static const _maxBlockchainRefreshAttempts = 12;
-
   final _amount = TextEditingController();
   XFile? _evidence;
-  Timer? _blockchainRefreshTimer;
   var _saving = false;
   var _confirming = false;
-  var _forceBlockchainRefresh = false;
-  var _blockchainRefreshLimitReached = false;
-  var _blockchainRefreshAttempts = 0;
+
+  /// Recarga la deuda unas pocas veces mientras la pantalla esta abierta.
+  ///
+  /// Antes solo consultaba mientras faltaba el hash y paraba en cuanto llegaba.
+  /// Eso dejaba fuera el caso mas comun de todos: el deudor paga desde su
+  /// telefono y quien creo el gasto, mirando esta misma pantalla en el suyo,
+  /// seguia viendo "pendiente" hasta salir y volver a entrar.
+  late final BoundedPoller _poller = BoundedPoller(onTick: _refreshFromServer);
+
+  @override
+  void initState() {
+    super.initState();
+    _poller.start();
+  }
 
   @override
   void dispose() {
-    _blockchainRefreshTimer?.cancel();
+    _poller.dispose();
     _amount.dispose();
     super.dispose();
+  }
+
+  /// Relee del servidor lo que esta pantalla muestra.
+  void _refreshFromServer() {
+    if (!mounted) return;
+    final payment = ref.read(paymentProvider(widget.paymentId)).valueOrNull;
+    ref.invalidate(paymentProvider(widget.paymentId));
+    if (payment != null) {
+      ref.invalidate(expenseProvider(payment.expenseId));
+      ref.invalidate(expensePaymentsProvider(payment.expenseId));
+    }
   }
 
   @override
@@ -762,7 +768,17 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     final session = ref.watch(authControllerProvider).valueOrNull;
     return Scaffold(
       appBar: AppBar(title: const Text('Detalle de transaccion')),
-      body: payment.when(
+      // Deslizar para actualizar: el sondeo cubre los primeros segundos, pero
+      // despues la pantalla se queda quieta y hace falta una forma de pedir
+      // datos frescos sin salir y volver a entrar.
+      body: RefreshIndicator(
+        onRefresh: () async {
+          _refreshFromServer();
+          // Pedir datos a mano significa que se sigue esperando algo, asi que
+          // la cuenta de pasadas vuelve a empezar.
+          _poller.restart();
+        },
+        child: payment.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => ErrorView(
           title: 'No se pudo cargar el pago',
@@ -770,7 +786,6 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
         ),
         data: (item) {
           final expense = ref.watch(expenseProvider(item.expenseId));
-          _syncBlockchainRefresh(item);
           final expenseOwnerId = expense.valueOrNull?.userId;
 
           // Quien mira decide que se muestra; los permisos de abajo deciden que
@@ -816,7 +831,10 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
                               status: item.confirmed
                                   ? 'CONFIRMADO'
                                   : 'SIN CONFIRMAR'),
-                          BlockchainHashChip(hash: item.blockchainHash),
+                          BlockchainHashChip(
+                            hash: item.blockchainHash,
+                            anchoredAt: item.anchoredAt,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -908,6 +926,7 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
             ],
           );
         },
+        ),
       ),
     );
   }
@@ -1000,7 +1019,8 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     final currentPayment =
         payment ?? ref.read(paymentProvider(paymentId)).valueOrNull;
     ref.invalidate(paymentProvider(paymentId));
-    _startBlockchainRefresh(force: true);
+    // Tras una accion propia se vuelve a sondear: el anclaje viene en camino.
+    _poller.restart();
     if (currentPayment == null) return;
     ref.invalidate(expenseProvider(currentPayment.expenseId));
     ref.invalidate(expensePaymentsProvider(currentPayment.expenseId));
@@ -1009,50 +1029,6 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
     if (expense != null) invalidateGroup(ref, expense.groupId);
   }
 
-  void _syncBlockchainRefresh(Payment payment) {
-    // Blockchain writes are asynchronous on the backend. Keep refreshing while
-    // the transaction hash is missing, then stop once the hash appears.
-    if (payment.blockchainHash.trim().isEmpty) {
-      _startBlockchainRefresh();
-    } else if (!_forceBlockchainRefresh) {
-      _stopBlockchainRefresh();
-      _blockchainRefreshLimitReached = false;
-    }
-  }
-
-  void _startBlockchainRefresh({bool force = false}) {
-    _forceBlockchainRefresh = _forceBlockchainRefresh || force;
-    if (_blockchainRefreshLimitReached && !force) return;
-    if (force) _blockchainRefreshLimitReached = false;
-    if (_blockchainRefreshTimer != null) return;
-    _blockchainRefreshAttempts = 0;
-    _blockchainRefreshTimer = Timer.periodic(
-      _blockchainRefreshInterval,
-      (_) => _refreshBlockchainHash(),
-    );
-  }
-
-  void _refreshBlockchainHash() {
-    if (!mounted) return;
-    _blockchainRefreshAttempts++;
-    final payment = ref.read(paymentProvider(widget.paymentId)).valueOrNull;
-    ref.invalidate(paymentProvider(widget.paymentId));
-    if (payment != null) {
-      ref.invalidate(expenseProvider(payment.expenseId));
-      ref.invalidate(expensePaymentsProvider(payment.expenseId));
-    }
-    if (_blockchainRefreshAttempts >= _maxBlockchainRefreshAttempts) {
-      _blockchainRefreshLimitReached = true;
-      _stopBlockchainRefresh();
-    }
-  }
-
-  void _stopBlockchainRefresh() {
-    _blockchainRefreshTimer?.cancel();
-    _blockchainRefreshTimer = null;
-    _forceBlockchainRefresh = false;
-    _blockchainRefreshAttempts = 0;
-  }
 }
 
 class ReportsScreen extends ConsumerStatefulWidget {
@@ -1157,6 +1133,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                 Text('Vence ${formatDate(expense.dueDate)}'),
                                 BlockchainHashChip(
                                   hash: expense.blockchainHash,
+                                  anchoredAt: expense.anchoredAt,
                                   compact: true,
                                 ),
                               ],
@@ -1262,9 +1239,21 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               Text(payment.confirmed
                                   ? payment.status
                                   : '${payment.status} - sin confirmar'),
+                              // La fecha del pago, que no es la del anclaje:
+                              // esa va debajo del hash. Aqui interesa cuando
+                              // ocurrio la operacion; alli, cuando quedo
+                              // probada.
+                              if (payment.createdAt != null)
+                                Text(
+                                  formatDateTime(payment.createdAt),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: context.mutedIconColor),
+                                ),
                               const SizedBox(height: 6),
                               BlockchainHashChip(
                                 hash: payment.blockchainHash,
+                                anchoredAt: payment.anchoredAt,
                                 compact: true,
                               ),
                             ],

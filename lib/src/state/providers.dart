@@ -17,6 +17,25 @@ final onboardingCompletedProvider = FutureProvider<bool>((ref) {
 ///
 /// La pantalla de acceso la lee para explicar por que se cerro la sesion. Sin
 /// esto, al usuario lo devuelve al login sin ninguna razon aparente.
+/// Datos del alta que está esperando su código de verificación.
+///
+/// Vive en memoria y no en la ruta: la contraseña hace falta para iniciar
+/// sesión en cuanto el código se confirme, y una contraseña no viaja en una URL.
+/// Se limpia al confirmar o al salir de la pantalla.
+class PendingSignUp {
+  const PendingSignUp({
+    required this.email,
+    required this.username,
+    required this.password,
+  });
+
+  final String email;
+  final String username;
+  final String password;
+}
+
+final pendingSignUpProvider = StateProvider<PendingSignUp?>((ref) => null);
+
 final sessionExpiredProvider = StateProvider<bool>((ref) => false);
 
 /// Escucha los rechazos por token vencido y cierra la sesion.
@@ -49,24 +68,56 @@ class AuthController extends AsyncNotifier<AuthSession?> {
     state = await AsyncValue.guard(() => _api.signIn(username, password));
   }
 
-  Future<void> signUp({
+  /// Primer paso del alta. Devuelve si hay que pedir el código del correo.
+  ///
+  /// Si el backend tiene la verificación desactivada, la cuenta ya quedó creada
+  /// y aquí mismo se inicia sesión: la pantalla del código no llega a aparecer.
+  Future<bool> requestSignUp({
     required String username,
     required String password,
     required String firstName,
     required String lastName,
     required String phoneNumber,
     required String email,
+    required String documentType,
+    required String documentNumber,
   }) async {
     state = const AsyncLoading();
+    var verificationRequired = true;
     state = await AsyncValue.guard<AuthSession?>(() async {
-      await _api.signUp(
+      verificationRequired = await _api.requestSignUp(
         username: username,
         password: password,
         firstName: firstName,
         lastName: lastName,
         phoneNumber: phoneNumber,
         email: email,
+        documentType: documentType,
+        documentNumber: documentNumber,
       );
+      if (verificationRequired) {
+        // Todavía no hay cuenta, así que tampoco hay sesión que devolver. El
+        // estado vuelve a null a propósito: si devolviera algo, el enrutador
+        // creería que el usuario ya entró.
+        return null;
+      }
+      return _api.signIn(username, password);
+    });
+    // Un fallo deja el estado con el error y no debe mandar a la pantalla del
+    // código: no se envió ninguno.
+    return state.hasError ? false : verificationRequired;
+  }
+
+  /// Segundo paso: canjea el código, y si sale bien inicia sesión.
+  Future<void> confirmSignUp({
+    required String email,
+    required String code,
+    required String username,
+    required String password,
+  }) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard<AuthSession?>(() async {
+      await _api.confirmSignUp(email: email, code: code);
       return _api.signIn(username, password);
     });
   }
@@ -216,6 +267,13 @@ final myReputationHistoryProvider =
   return ref.read(apiProvider).getReputationHistory(session.id);
 });
 
+final myScoreSeriesProvider =
+    FutureProvider<List<ScoreSeriesPoint>>((ref) async {
+  final session = ref.watch(authControllerProvider).valueOrNull;
+  if (session == null) return const [];
+  return ref.read(apiProvider).getScoreSeries(session.id);
+});
+
 final groupLeaderboardProvider =
     FutureProvider.family<List<LeaderboardEntry>, int>((ref, groupId) async {
   final session = ref.watch(authControllerProvider).valueOrNull;
@@ -263,13 +321,17 @@ final dashboardSummaryProvider = FutureProvider<DashboardSummary>((ref) async {
   }
   // Dashboard data mixes outgoing debts with incoming collections, so all
   // three datasets are fetched before applying local presentation calculations.
-  final expenses = await ref.read(apiProvider).getExpensesByUser(session.id);
+  // Los gastos donde participa, no solo los que creo: una cuota que otro le
+  // asigno vive en un gasto ajeno, y ahi esta su fecha de vencimiento.
+  final expenses =
+      await ref.read(apiProvider).getExpensesWhereParticipant(session.id);
   final outgoing = await ref.read(apiProvider).getPaymentsByUser(session.id);
   final incoming = await ref.read(apiProvider).getIncomingPayments(session.id);
   return summarizeDashboard(
     expenses: expenses,
     outgoingPayments: outgoing,
     incomingPayments: incoming,
+    userId: session.id,
   );
 });
 
@@ -288,4 +350,5 @@ void invalidateGroup(WidgetRef ref, int groupId) {
   ref.invalidate(myReputationProvider);
   ref.invalidate(myBadgesProvider);
   ref.invalidate(myReputationHistoryProvider);
+  ref.invalidate(myScoreSeriesProvider);
 }

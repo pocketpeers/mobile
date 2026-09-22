@@ -1,7 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:pocketpeers/src/core/formatters.dart';
 
 void main() {
+  // Los formateadores de fecha llevan el locale escrito, y intl exige cargar
+  // sus datos antes de usarlo. Sin esta linea, formatDate lanza
+  // LocaleDataException en las pruebas aunque funcione en la aplicacion, donde
+  // main() ya lo inicializa.
+  setUpAll(() => initializeDateFormatting(appDateLocale));
+
   test('formatCurrency uses soles with two decimals', () {
     expect(formatCurrency(12.5), contains('S/'));
     expect(formatCurrency(12.5), contains('12.50'));

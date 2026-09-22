@@ -22,6 +22,20 @@ final currencyFormatter = NumberFormat.currency(
 );
 final shortDateFormatter = DateFormat('dd MMM yyyy', appDateLocale);
 
+/// Fecha y hora, para lo que ocurre en un instante y no a lo largo de un día.
+///
+/// Un anclaje en la cadena no pasó «el 21 de setiembre»: pasó en un momento
+/// exacto, y esa precisión es parte de lo que lo vuelve un comprobante. En 24
+/// horas y no en am/pm porque estas marcas se leen unas junto a otras, y con el
+/// sufijo hay que mirar dos veces para saber cuál fue primero.
+final dateTimeFormatter = DateFormat('dd MMM yyyy, HH:mm', appDateLocale);
+
+/// Sin año, para los ejes de las gráficas.
+///
+/// Una serie de noventa días cabe entera en el mismo año casi siempre, y
+/// repetirlo en cada etiqueta gasta el ancho que en un teléfono no sobra.
+final shortDayMonthFormatter = DateFormat('d MMM', appDateLocale);
+
 /// Formato de intercambio con el backend: sin locale a propósito, para que no
 /// dependa de cómo esté configurada la app.
 final inputDateFormatter = DateFormat('yyyy-MM-dd');
@@ -31,6 +45,15 @@ String formatCurrency(num value) => currencyFormatter.format(value);
 String formatDate(DateTime? value) {
   if (value == null) return 'Sin fecha';
   return shortDateFormatter.format(value);
+}
+
+/// Fecha y hora en local.
+///
+/// El backend las envía en UTC, así que se convierten antes de formatear: sin
+/// eso, un anclaje de las 7 de la tarde en Lima se mostraría como medianoche.
+String formatDateTime(DateTime? value) {
+  if (value == null) return 'Sin fecha';
+  return dateTimeFormatter.format(value.toLocal());
 }
 
 String formatBlockchainHash(String value) {

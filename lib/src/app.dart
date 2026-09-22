@@ -11,7 +11,9 @@ import 'core/badge_visuals.dart';
 import 'core/crew.dart';
 import 'data/models.dart';
 import 'features/auth/auth_screen.dart';
+import 'core/refresh_on_return.dart';
 import 'features/auth/forgot_password_screen.dart';
+import 'features/auth/verify_email_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/expenses/expense_screens.dart';
 import 'features/groups/group_screens.dart';
@@ -26,13 +28,31 @@ import 'state/providers.dart';
 
 bool _isMinSplashTimePassed = false;
 
+/// Le dice a GoRouter que reevalue las redirecciones, sin reconstruirlo.
+///
+/// Antes el router observaba la sesion con `ref.watch`, asi que **cada** cambio
+/// de ese estado —incluidos el `loading` del envio y el `error` de un registro
+/// rechazado— producia un GoRouter nuevo. Un router nuevo trae su propio
+/// Navigator, que reconstruye la pantalla desde cero: quien se equivocaba en un
+/// solo campo del registro perdia los ocho que ya habia escrito y aparecia de
+/// vuelta en el inicio de sesion, con el mensaje debajo.
+///
+/// Con un Listenable el router vive una sola vez y solo se vuelve a preguntar a
+/// donde toca ir, que es lo unico que hacia falta.
+class _RouterRefreshNotifier extends ChangeNotifier {
+  _RouterRefreshNotifier(Ref ref) {
+    ref.listen(authControllerProvider, (_, __) => notifyListeners());
+    ref.listen(onboardingCompletedProvider, (_, __) => notifyListeners());
+  }
+}
+
 final _routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authControllerProvider);
-  final onboarding = ref.watch(onboardingCompletedProvider);
-  final isSignedIn = auth.valueOrNull != null;
+  final refresh = _RouterRefreshNotifier(ref);
+  ref.onDispose(refresh.dispose);
+
   final initialLocation = !_isMinSplashTimePassed
       ? '/splash'
-      : isSignedIn
+      : ref.read(authControllerProvider).valueOrNull != null
           ? '/dashboard'
           : '/auth';
 
@@ -46,17 +66,32 @@ final _routerProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     initialLocation: initialLocation,
+    refreshListenable: refresh,
+    // Deja que las pantallas se enteren de que volvieron a ellas. Ver
+    // RefreshOnReturn.
+    observers: [appRouteObserver],
     redirect: (context, state) {
       // Route access is driven by the restored auth session and onboarding
       // flag. Keeping this logic centralized avoids duplicated guards in every
       // screen.
+      //
+      // Se leen aqui dentro y no en el cuerpo del provider: hacerlo arriba con
+      // `watch` es justamente lo que ataba la vida del router al estado de
+      // sesion y borraba el formulario en cada error.
+      final auth = ref.read(authControllerProvider);
+      final onboarding = ref.read(onboardingCompletedProvider);
+      final isSignedIn = auth.valueOrNull != null;
       final isSplashRoute = state.matchedLocation == '/splash';
       final isForgotPasswordRoute = state.matchedLocation == '/forgot-password';
+      // Confirmar el correo ocurre, por definicion, antes de tener cuenta: esa
+      // ruta tiene que ser alcanzable sin sesion igual que la de acceso.
+      final isVerifyEmailRoute = state.matchedLocation == '/verify-email';
       // Recuperar la contraseña es, por definición, algo que se hace sin haber
       // podido iniciar sesión: esa ruta tiene que ser alcanzable sin sesión,
       // igual que la de acceso.
-      final isAuthRoute =
-          state.matchedLocation == '/auth' || isForgotPasswordRoute;
+      final isAuthRoute = state.matchedLocation == '/auth' ||
+          isForgotPasswordRoute ||
+          isVerifyEmailRoute;
       final isOnboardingRoute = state.matchedLocation == '/onboarding';
 
       if (!_isMinSplashTimePassed) {
@@ -100,6 +135,13 @@ final _routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (context, state) => appTransitionPage(
           key: state.pageKey,
           child: const ForgotPasswordScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/verify-email',
+        pageBuilder: (context, state) => appTransitionPage(
+          key: state.pageKey,
+          child: const VerifyEmailScreen(),
         ),
       ),
       GoRoute(

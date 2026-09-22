@@ -79,16 +79,31 @@ GroupSummary summarizeGroup({
   );
 }
 
+/// Resume el panel.
+///
+/// [expenses] son los gastos en los que la persona participa: los que creó y
+/// aquellos donde le asignaron una cuota. Los dos grupos hacen falta, pero para
+/// cosas distintas, y mezclarlos daría cifras falsas:
+///
+/// - **Los propios** alimentan «Total» y el gráfico mensual. Si contaran los
+///   ajenos, el total sumaría el importe completo de un gasto del que la
+///   persona solo debe una parte.
+/// - **Todos** sirven para cruzar cada pago con su fecha de vencimiento, que
+///   vive en el gasto. Sin los ajenos, una cuota que otro te asignó no tenía
+///   dónde mirar su fecha y «Vence pronto» la descartaba en silencio.
 DashboardSummary summarizeDashboard({
   required List<Expense> expenses,
   required List<Payment> outgoingPayments,
   required List<Payment> incomingPayments,
+  required int userId,
 }) {
   // Balance is a personal cash-flow view: incoming pending collections minus
   // outgoing pending obligations.
   expenses = expenses.where((expense) => expense.isActive).toList();
+  final ownExpenses =
+      expenses.where((expense) => expense.userId == userId).toList();
   final totalExpenses =
-      expenses.fold<double>(0, (sum, item) => sum + item.amount);
+      ownExpenses.fold<double>(0, (sum, item) => sum + item.amount);
   final totalPaid = outgoingPayments.fold<double>(
       0, (sum, item) => sum + _confirmedPaid(item));
   final incomingPending = incomingPayments.fold<double>(
@@ -104,7 +119,8 @@ DashboardSummary summarizeDashboard({
 
   final monthFormatter = DateFormat('yyyy-MM');
   final monthly = <String, double>{};
-  for (final expense in expenses) {
+  // Solo los propios: el grafico responde "cuanto he puesto yo cada mes".
+  for (final expense in ownExpenses) {
     final date = expense.createdAt ?? expense.dueDate;
     if (date == null) continue;
     final month = monthFormatter.format(date);
@@ -115,7 +131,9 @@ DashboardSummary summarizeDashboard({
     ..sort((a, b) => b.id.compareTo(a.id));
 
   // Deudas propias con fecha, de la mas urgente a la mas lejana. Se cruza el
-  // pago con su gasto porque la fecha de vencimiento vive en el gasto.
+  // pago con su gasto porque la fecha de vencimiento vive en el gasto, y aqui
+  // se usan TODOS los gastos —tambien los ajenos— porque justamente las cuotas
+  // que otro te asigno son las que antes se perdian.
   final expenseById = {for (final expense in expenses) expense.id: expense};
   final upcoming = <UpcomingPayment>[];
   for (final payment in outgoingPayments) {

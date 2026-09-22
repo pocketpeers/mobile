@@ -7,12 +7,25 @@ import 'formatters.dart';
 class BlockchainHashChip extends StatelessWidget {
   const BlockchainHashChip({
     required this.hash,
+    this.anchoredAt,
     this.compact = false,
     this.onRefresh,
     super.key,
   });
 
   final String hash;
+
+  /// Cuándo quedó escrito en la cadena.
+  ///
+  /// Un hash sin su fecha es la mitad de un comprobante: dice que la operación
+  /// está en la cadena, pero no a qué momento corresponde, que es justo lo que
+  /// hace falta cuando alguien enseña el registro para acreditar que cumplió.
+  ///
+  /// Va debajo del hash y no a su lado. El hash es un identificador que se
+  /// copia entero, y meterle la fecha dentro obligaría a recortarlo todavía
+  /// más o a desbordar el ancho del teléfono.
+  final DateTime? anchoredAt;
+
   final bool compact;
 
   /// Que hacer cuando el hash todavia no llego y alguien toca el chip.
@@ -38,6 +51,42 @@ class BlockchainHashChip extends StatelessWidget {
     final backgroundColor = available
         ? context.successIconContainerColor
         : context.primaryIconContainerColor;
+    // La fecha solo aparece si hay hash. Mientras el anclaje esta pendiente no
+    // hay ningun instante que contar, y enseñar una fecha junto a "Pendiente"
+    // se leeria como si ya se hubiera registrado.
+    final showAnchoredAt = available && anchoredAt != null;
+    final chip = _buildChip(
+        context, normalizedHash, available, canRefresh, iconColor, backgroundColor);
+
+    if (!showAnchoredAt) {
+      return chip;
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        chip,
+        const SizedBox(height: 4),
+        Text(
+          formatDateTime(anchoredAt),
+          style: TextStyle(
+            fontSize: compact ? 11 : 12,
+            color: context.mutedIconColor,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChip(
+    BuildContext context,
+    String normalizedHash,
+    bool available,
+    bool canRefresh,
+    Color iconColor,
+    Color backgroundColor,
+  ) {
     return Tooltip(
       message: available
           ? 'Copiar hash blockchain'

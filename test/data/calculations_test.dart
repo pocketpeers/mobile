@@ -169,6 +169,7 @@ void main() {
             evidencePhotos: [],
           ),
         ],
+        userId: 1,
       );
 
       expect(summary.totalExpenses, 150);
@@ -180,11 +181,52 @@ void main() {
       expect(summary.recentPayments.map((payment) => payment.id), [3, 2, 1]);
     });
 
+    /// La cuota que te asigna otro tiene que aparecer en "Vence pronto".
+    ///
+    /// Es el fallo que se vio en campo: con un solo creador por grupo nunca
+    /// pasaba, pero desde que cualquier integrante puede crear gastos, un
+    /// deudor tiene cuotas en gastos ajenos. La app solo pedia los gastos
+    /// propios, no encontraba el gasto del pago, y lo descartaba en silencio:
+    /// la pantalla decia "No tienes pagos pendientes con fecha" teniendo uno
+    /// que vencia al dia siguiente.
+    test('an expense created by someone else still feeds upcoming payments', () {
+      final summary = summarizeDashboard(
+        expenses: [
+          // Ajeno: lo creo el usuario 2 y a mi me toca una cuota.
+          expense(id: 7, amount: 200, ownerId: 2),
+        ],
+        outgoingPayments: const [
+          Payment(
+            id: 9,
+            description: 'Mi cuota',
+            amount: 50,
+            amountPaid: 0,
+            status: 'PENDING',
+            confirmed: false,
+            userId: 1,
+            expenseId: 7,
+            blockchainHash: '',
+            evidencePhotos: [],
+          ),
+        ],
+        incomingPayments: const [],
+        userId: 1,
+      );
+
+      expect(summary.upcoming.map((item) => item.paymentId), [9]);
+      expect(summary.upcoming.single.remaining, 50);
+
+      // Y el gasto ajeno no infla lo propio: se deben 50, no los 200 que costo.
+      expect(summary.totalExpenses, 0);
+      expect(summary.monthlyExpenses, isEmpty);
+    });
+
     test('uses perfect score when there are no outgoing payments', () {
       final summary = summarizeDashboard(
         expenses: const [],
         outgoingPayments: const [],
         incomingPayments: const [],
+        userId: 1,
       );
 
       expect(summary.score, 100);
@@ -197,12 +239,13 @@ Expense expense({
   required double amount,
   int active = 1,
   DateTime? createdAt,
+  int ownerId = 1,
 }) {
   return Expense(
     id: id,
     name: 'Gasto $id',
     amount: amount,
-    userId: 1,
+    userId: ownerId,
     groupId: 1,
     dueDate: DateTime(2026, 6, 30),
     remainingAmount: amount,

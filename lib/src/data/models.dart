@@ -33,6 +33,13 @@ DateTime? _toDate(Object? value) {
     }
     return null;
   }
+  // Jackson serializa las fechas en ISO salvo que se le configure lo
+  // contrario, en cuyo caso llegan como milisegundos desde epoch. Aceptar las
+  // dos formas evita que un cambio de configuracion del backend vacie las
+  // fechas de la app sin que nadie se entere.
+  if (value is num) {
+    return DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
+  }
   return DateTime.tryParse(value.toString().replaceFirst(' ', 'T'));
 }
 
@@ -63,6 +70,8 @@ class UserProfile {
     required this.photo,
     required this.email,
     required this.userId,
+    this.documentType,
+    this.documentNumber,
   });
 
   final int id;
@@ -73,6 +82,12 @@ class UserProfile {
   final String email;
   final int userId;
 
+  /// Documento de identidad. Nulo en las cuentas creadas antes de pedirlo, y
+  /// solo llega en el perfil propio: los endpoints que sirven perfiles ajenos
+  /// no lo incluyen a proposito.
+  final String? documentType;
+  final String? documentNumber;
+
   factory UserProfile.fromJson(Map<String, Object?> json) => UserProfile(
         id: _toInt(json['id']),
         username: json['username']?.toString() ?? '',
@@ -81,6 +96,8 @@ class UserProfile {
         photo: json['photo']?.toString() ?? '',
         email: json['email']?.toString() ?? '',
         userId: _toInt(json['userId']),
+        documentType: json['documentType']?.toString(),
+        documentNumber: json['documentNumber']?.toString(),
       );
 }
 
@@ -154,6 +171,7 @@ class Expense {
     required this.active,
     required this.blockchainHash,
     this.dueDate,
+    this.anchoredAt,
     this.createdAt,
     this.updatedAt,
   });
@@ -169,6 +187,10 @@ class Expense {
   final String status;
   final int active;
   final String blockchainHash;
+
+  /// Cuándo el gasto quedó escrito en la cadena. Nulo mientras no lo esté.
+  final DateTime? anchoredAt;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -186,6 +208,7 @@ class Expense {
         status: json['status']?.toString() ?? 'PENDING',
         active: _toInt(json['active'] ?? 1),
         blockchainHash: json['blockchainHash']?.toString() ?? '',
+        anchoredAt: _toDate(json['anchoredAt']),
         createdAt: _toDate(json['createdAt']),
         updatedAt: _toDate(json['updatedAt']),
       );
@@ -203,6 +226,10 @@ class Payment {
     required this.expenseId,
     required this.blockchainHash,
     required this.evidencePhotos,
+    this.anchoredAt,
+    this.createdAt,
+    this.updatedAt,
+    this.paidAt,
   });
 
   final int id;
@@ -216,6 +243,21 @@ class Payment {
   final String blockchainHash;
   final List<String> evidencePhotos;
 
+  /// Cuando la operacion quedo escrita en la cadena.
+  ///
+  /// Va siempre con [blockchainHash]: los dos salen del mismo eslabon, asi que
+  /// si hay hash hay fecha. Es la que acompaña al hash, porque un comprobante
+  /// sin el momento al que corresponde no prueba gran cosa.
+  final DateTime? anchoredAt;
+
+  /// Cuando se registro el pago en la aplicacion.
+  final DateTime? createdAt;
+
+  final DateTime? updatedAt;
+
+  /// Cuando el usuario declara haber pagado. Nulo mientras no abone nada.
+  final DateTime? paidAt;
+
   double get remaining => max(0, amount - amountPaid);
 
   factory Payment.fromJson(Map<String, Object?> json) => Payment(
@@ -228,6 +270,10 @@ class Payment {
         userId: _toInt(json['userId']),
         expenseId: _toInt(json['expenseId']),
         blockchainHash: json['blockchainHash']?.toString() ?? '',
+        anchoredAt: _toDate(json['anchoredAt']),
+        createdAt: _toDate(json['createdAt']),
+        updatedAt: _toDate(json['updatedAt']),
+        paidAt: _toDate(json['paidAt']),
         evidencePhotos: ((json['evidencePhotos'] as List?) ?? const [])
             .map((item) => item.toString())
             .where((item) => item.trim().isNotEmpty)
@@ -518,6 +564,47 @@ class Reputation {
         pointsToNextLevel: _toInt(json['pointsToNextLevel']),
         onTimePaymentStreak: _toInt(json['onTimePaymentStreak']),
         completedPayments: _toInt(json['completedPayments']),
+      );
+}
+
+/// Un punto de la evolucion del score.
+///
+/// No es un evento: es el score que el motor habria calculado en ese instante,
+/// reconstruido por el backend. La distincion importa porque el score no se
+/// acumula —se recalcula entero desde el historial— y por eso no se puede
+/// dibujar sumando los puntos de cada evento, que es lo que hacia la version
+/// anterior de esta grafica con el contador PBL.
+class ScoreSeriesPoint {
+  const ScoreSeriesPoint({
+    required this.at,
+    required this.score,
+    required this.bandLow,
+    required this.bandHigh,
+    required this.level,
+    required this.levelName,
+  });
+
+  final DateTime? at;
+  final double score;
+
+  /// Extremos de la banda de confianza: cuanta certeza hay detras del numero.
+  final double bandLow;
+  final double bandHigh;
+
+  /// Nombre del enum del backend, estable para comparar.
+  final String level;
+
+  /// Nombre para mostrar, ya traducido por el backend.
+  final String levelName;
+
+  factory ScoreSeriesPoint.fromJson(Map<String, Object?> json) =>
+      ScoreSeriesPoint(
+        at: _toDate(json['at']),
+        score: _toDouble(json['score']),
+        bandLow: _toDouble(json['bandLow']),
+        bandHigh: _toDouble(json['bandHigh']),
+        level: json['level']?.toString() ?? '',
+        levelName: json['levelName']?.toString() ?? '',
       );
 }
 

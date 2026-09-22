@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/bounded_poller.dart';
+import '../../core/refresh_on_return.dart';
 import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../core/remote_image.dart';
@@ -382,6 +384,7 @@ class ExpenseCard extends StatelessWidget {
                   ),
                   BlockchainHashChip(
                     hash: expense.blockchainHash,
+                    anchoredAt: expense.anchoredAt,
                     compact: true,
                   ),
                 ],
@@ -498,7 +501,12 @@ class GroupExpensesScreen extends ConsumerStatefulWidget {
       _GroupExpensesScreenState();
 }
 
-class _GroupExpensesScreenState extends ConsumerState<GroupExpensesScreen> {
+class _GroupExpensesScreenState extends ConsumerState<GroupExpensesScreen>
+    with RefreshOnReturn {
+  /// Al volver del detalle de un gasto, recarga la lista.
+  @override
+  void onReturnToScreen() => invalidateGroup(ref, widget.groupId);
+
   final _search = TextEditingController();
   var _filter = _ExpenseFilter.todos;
   var _query = '';
@@ -511,10 +519,8 @@ class _GroupExpensesScreenState extends ConsumerState<GroupExpensesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final group = ref.watch(groupProvider(widget.groupId));
     final expenses = ref.watch(groupExpensesProvider(widget.groupId));
     final session = ref.watch(authControllerProvider).valueOrNull;
-    final isAdmin = group.valueOrNull?.adminId == session?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -568,14 +574,15 @@ class _GroupExpensesScreenState extends ConsumerState<GroupExpensesScreen> {
           ),
         ),
       ),
-      floatingActionButton: isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: () =>
-                  context.push('/groups/${widget.groupId}/expenses/new'),
-              icon: const Icon(Icons.add_card_outlined),
-              label: const Text('Gasto'),
-            )
-          : null,
+      // Cualquier integrante del grupo puede registrar un gasto, no solo quien
+      // lo administra. La reputación se construye siendo deudor de otro: si
+      // una sola persona origina las obligaciones, esa persona no acumula
+      // historial y las demás comparten una única contraparte.
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/groups/${widget.groupId}/expenses/new'),
+        icon: const Icon(Icons.add_card_outlined),
+        label: const Text('Gasto'),
+      ),
       body: expenses.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => ErrorView(
@@ -641,7 +648,12 @@ class _GroupExpensesScreenState extends ConsumerState<GroupExpensesScreen> {
                           onTap: () => context.push(
                             '/groups/${widget.groupId}/expenses/${visible[index].id}',
                           ),
-                          onCancel: isAdmin
+                          // Anular lo decide quien creó el gasto, no quien
+                          // administra el grupo: es el mismo criterio que usa
+                          // el backend, y el mismo que para confirmar los
+                          // pagos. Ofrecer el botón a quien el servidor va a
+                          // rechazar solo produce un error incomprensible.
+                          onCancel: visible[index].userId == session?.id
                               ? () => confirmCancelExpense(
                                     context,
                                     ref,
@@ -679,17 +691,46 @@ class ExpenseDetailScreen extends ConsumerStatefulWidget {
       _ExpenseDetailScreenState();
 }
 
-class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
-  /// Vuelve a pedir el gasto y sus pagos para ver si ya llego el hash.
+class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen>
+    with RefreshOnReturn {
+  /// Al volver del detalle de una deuda, relee el gasto y sus pagos.
+  @override
+  void onReturnToScreen() {
+    _refreshFromServer();
+    ref.invalidate(expenseReceiptsProvider(widget.expenseId));
+  }
+
+  /// Recarga el gasto unas pocas veces mientras la pantalla esta abierta.
   ///
-  /// Reemplaza al temporizador que consultaba cada tres segundos hasta doce
-  /// veces. Aquel se rendia a los 36 s aunque el backend admite hasta 90 s
-  /// esperando la confirmacion de Solana, asi que en las confirmaciones lentas
-  /// gastaba 24 peticiones y terminaba mostrando "Pendiente" de todos modos.
-  /// Ahora la consulta la dispara quien mira, tocando el chip.
-  void _refreshBlockchainHashes() {
+  /// No es solo por el hash: los pagos de este gasto los registran otras
+  /// personas desde sus telefonos, y sin esto quien mira el detalle no ve
+  /// llegar ni un abono ni una confirmacion hasta salir y volver a entrar.
+  late final BoundedPoller _poller = BoundedPoller(onTick: _refreshFromServer);
+
+  @override
+  void initState() {
+    super.initState();
+    _poller.start();
+  }
+
+  @override
+  void dispose() {
+    _poller.dispose();
+    super.dispose();
+  }
+
+  /// Relee del servidor lo que esta pantalla muestra.
+  void _refreshFromServer() {
+    if (!mounted) return;
     ref.invalidate(expenseProvider(widget.expenseId));
     ref.invalidate(expensePaymentsProvider(widget.expenseId));
+  }
+
+  /// Lo que dispara el chip del hash al tocarlo.
+  void _refreshBlockchainHashes() {
+    _refreshFromServer();
+    // Tocar el chip significa que se sigue esperando: la cuenta vuelve a cero.
+    _poller.restart();
   }
 
   @override
@@ -698,16 +739,18 @@ class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
     final payments = ref.watch(expensePaymentsProvider(widget.expenseId));
     final receipts = ref.watch(expenseReceiptsProvider(widget.expenseId));
     final members = ref.watch(groupMembersProvider(widget.groupId));
-    final group = ref.watch(groupProvider(widget.groupId));
     final session = ref.watch(authControllerProvider).valueOrNull;
     final item = expense.valueOrNull;
-    final isAdmin = group.valueOrNull?.adminId == session?.id;
+    // Anular es potestad del creador del gasto, igual que confirmarlo. Antes se
+    // preguntaba por el administrador del grupo, que desde que cualquier
+    // miembro puede crear gastos ya no es quien manda sobre ellos.
+    final isExpenseCreator = item != null && item.userId == session?.id;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gasto'),
         actions: [
-          if (isAdmin && item != null && item.isActive)
+          if (isExpenseCreator && item.isActive)
             IconButton(
               tooltip: 'Anular gasto',
               icon: const Icon(Icons.block_outlined),
@@ -728,9 +771,10 @@ class _ExpenseDetailScreenState extends ConsumerState<ExpenseDetailScreen> {
         ),
         data: (expenseItem) => RefreshIndicator(
           onRefresh: () async {
-            ref.invalidate(expenseProvider(widget.expenseId));
-            ref.invalidate(expensePaymentsProvider(widget.expenseId));
+            _refreshFromServer();
             ref.invalidate(expenseReceiptsProvider(widget.expenseId));
+            // Pedir datos a mano significa que se sigue esperando algo.
+            _poller.restart();
           },
           child: ListView(
             padding: const EdgeInsets.all(16),
@@ -935,6 +979,7 @@ class _ExpenseHeaderCard extends StatelessWidget {
                 ),
                 BlockchainHashChip(
                   hash: expense.blockchainHash,
+                  anchoredAt: expense.anchoredAt,
                   onRefresh: onRefreshHash,
                 ),
               ],
@@ -1249,6 +1294,7 @@ class _DebtRow extends StatelessWidget {
                         StatusChip(visual: visual, dense: true),
                         BlockchainHashChip(
                           hash: payment.blockchainHash,
+                          anchoredAt: payment.anchoredAt,
                           compact: true,
                         ),
                       ],

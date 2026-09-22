@@ -10,10 +10,30 @@ import 'models.dart';
 typedef JsonMap = Map<String, Object?>;
 
 class PocketPeersApi {
+  /// Almacén seguro con recuperación ante datos ilegibles.
+  ///
+  /// `resetOnError` es lo importante y viene desactivado por defecto. En
+  /// Android los valores se cifran con una clave del Keystore que pertenece al
+  /// dispositivo y no al respaldo: si el sistema restaura los datos de la app
+  /// —copia de seguridad automática, cambio de teléfono, ciertas
+  /// actualizaciones— los blobs cifrados vuelven pero la clave no, y a partir
+  /// de ahí cada lectura lanza una excepción de descifrado.
+  ///
+  /// Sin esta opción esa excepción sube hasta el interceptor de Dio, la
+  /// petición falla sin respuesta HTTP y la app lo pinta como si no hubiera
+  /// internet. Y no se arregla solo: la lectura vuelve a fallar en cada
+  /// intento, para siempre, hasta que alguien desinstala la aplicación.
+  ///
+  /// Con `resetOnError` el plugin borra el dato ilegible y devuelve null, que
+  /// es lo mismo que "no hay sesión": la app manda al login y sigue viva.
+  static const _defaultStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(resetOnError: true),
+  );
+
   PocketPeersApi({
     Dio? dio,
     FlutterSecureStorage? storage,
-  })  : _storage = storage ?? const FlutterSecureStorage(),
+  })  : _storage = storage ?? _defaultStorage,
         _dio = dio ??
             Dio(
               BaseOptions(
@@ -28,7 +48,7 @@ class PocketPeersApi {
         onRequest: (options, handler) async {
           // Every backend endpoint after login expects the JWT in this header.
           // The interceptor keeps individual API methods focused on payloads.
-          final token = await _storage.read(key: StorageKeys.authToken);
+          final token = await _read(StorageKeys.authToken);
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
@@ -112,6 +132,28 @@ class PocketPeersApi {
     return true;
   }
 
+  /// Lee una clave sin dejar que un fallo del almacén rompa la petición.
+  ///
+  /// `resetOnError` cubre el caso habitual, pero no todos: un Keystore que
+  /// devuelve otro error, un fabricante con su propia implementación, o un
+  /// dispositivo donde el almacén no está disponible en ese instante. Aquí lo
+  /// que importa no es recuperar el valor —si no se puede leer, no se puede—
+  /// sino que la app trate eso como "no hay sesión" y mande al login, en vez
+  /// de propagar una excepción desde el interceptor que acaba viéndose como
+  /// una falla de red que no existe.
+  Future<String?> _read(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (_) {
+      // Se borra la clave ilegible para que el siguiente arranque empiece
+      // limpio en vez de repetir el mismo fallo indefinidamente.
+      try {
+        await _storage.delete(key: key);
+      } catch (_) {}
+      return null;
+    }
+  }
+
   Future<void> _clearStoredSession() async {
     await _storage.delete(key: StorageKeys.authToken);
     await _storage.delete(key: StorageKeys.userId);
@@ -119,9 +161,9 @@ class PocketPeersApi {
   }
 
   Future<AuthSession?> restoreSession() async {
-    final token = await _storage.read(key: StorageKeys.authToken);
-    final id = int.tryParse(await _storage.read(key: StorageKeys.userId) ?? '');
-    final username = await _storage.read(key: StorageKeys.username);
+    final token = await _read(StorageKeys.authToken);
+    final id = int.tryParse(await _read(StorageKeys.userId) ?? '');
+    final username = await _read(StorageKeys.username);
     if (token == null || id == null || username == null) return null;
     return AuthSession(id: id, username: username, token: token);
   }
@@ -136,6 +178,53 @@ class PocketPeersApi {
     return session;
   }
 
+  /// Primer paso del alta: pide el código que verifica el correo.
+  ///
+  /// No crea la cuenta. Devuelve si hace falta confirmar con un código; el
+  /// backend puede tener la verificación desactivada, y en ese caso la cuenta
+  /// ya quedó creada y no hay que pedir un código que nadie envió.
+  Future<bool> requestSignUp({
+    required String username,
+    required String password,
+    required String firstName,
+    required String lastName,
+    required String phoneNumber,
+    required String email,
+    required String documentType,
+    required String documentNumber,
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/authentication/sign-up/request',
+      data: {
+        'username': username,
+        'password': password,
+        'roles': ['ROLE_USER'],
+        'firstName': firstName,
+        'lastName': lastName,
+        'phoneNumber': phoneNumber,
+        'photo': '',
+        'email': email,
+        'documentType': documentType,
+        'documentNumber': documentNumber,
+      },
+    );
+    // Ante una respuesta inesperada se asume que sí hace falta verificar: es
+    // preferible pedir un código de más que dar por creada una cuenta que no
+    // existe y mandar al usuario a un login que va a fallar.
+    return response.data?['verificationRequired'] != false;
+  }
+
+  /// Segundo paso del alta: canjea el código y crea la cuenta.
+  Future<void> confirmSignUp({
+    required String email,
+    required String code,
+  }) async {
+    await _dio.post<JsonMap>(
+      '/api/v1/authentication/sign-up/confirm',
+      data: {'email': email, 'code': code},
+    );
+  }
+
   Future<void> signUp({
     required String username,
     required String password,
@@ -143,6 +232,8 @@ class PocketPeersApi {
     required String lastName,
     required String phoneNumber,
     required String email,
+    required String documentType,
+    required String documentNumber,
   }) async {
     await _dio.post<JsonMap>(
       '/api/v1/authentication/sign-up',
@@ -155,6 +246,11 @@ class PocketPeersApi {
         'phoneNumber': phoneNumber,
         'photo': '',
         'email': email,
+        // El documento es obligatorio desde que el estudio necesita acreditar
+        // que detras de cada cuenta hay una persona distinta. El backend lo
+        // rechaza si falta, asi que no tiene sentido mandarlo opcional.
+        'documentType': documentType,
+        'documentNumber': documentNumber,
       },
     );
   }
@@ -205,7 +301,7 @@ class PocketPeersApi {
   }
 
   Future<bool> isOnboardingCompleted() async {
-    return await _storage.read(key: StorageKeys.onboardingCompleted) == 'true';
+    return await _read(StorageKeys.onboardingCompleted) == 'true';
   }
 
   Future<void> completeOnboarding() async {
@@ -336,6 +432,20 @@ class PocketPeersApi {
         await _dio.get<List<dynamic>>('/api/v1/expenses/groupId/$groupId');
     // Cancelled expenses may still exist in the backend for audit purposes, but
     // the mobile app treats active expenses as the default working set.
+    return _list(response.data, Expense.fromJson)
+        .where((expense) => expense.isActive)
+        .toList();
+  }
+
+  /// Gastos en los que el usuario participa: los que creó y los que debe.
+  ///
+  /// Superconjunto de [getExpensesByUser]. Se pide este y no aquel porque el
+  /// panel necesita las dos cosas —los propios para los totales, y los ajenos
+  /// donde le asignaron una cuota para saber cuándo vencen— y con una sola
+  /// petición salen ambas.
+  Future<List<Expense>> getExpensesWhereParticipant(int userId) async {
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/expenses/participant/$userId');
     return _list(response.data, Expense.fromJson)
         .where((expense) => expense.isActive)
         .toList();
@@ -689,6 +799,21 @@ class PocketPeersApi {
       queryParameters: {'days': days},
     );
     return _list(response.data, ReputationEvent.fromJson);
+  }
+
+  /// Evolucion del score, reconstruida por el backend.
+  ///
+  /// Va aparte de [getReputationHistory] porque son cosas distintas: aquel
+  /// devuelve los eventos registrados, y este el score que esos eventos
+  /// producian en cada momento. `points` no es el numero de eventos sino
+  /// cuantos cortes de tiempo dibujar.
+  Future<List<ScoreSeriesPoint>> getScoreSeries(int userId,
+      {int days = 90, int points = 12}) async {
+    final response = await _dio.get<List<dynamic>>(
+      '/api/v1/pbl/users/$userId/score-series',
+      queryParameters: {'days': days, 'points': points},
+    );
+    return _list(response.data, ScoreSeriesPoint.fromJson);
   }
 
   Future<List<PblBadge>> getBadges(int userId) async {

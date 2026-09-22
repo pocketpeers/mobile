@@ -40,9 +40,22 @@ void main() {
   });
 
   group('passwordField', () {
-    test('requires at least six characters without trimming', () {
-      expect(passwordField('12345'), 'Ingresa al menos 6 caracteres');
-      expect(passwordField('123456'), isNull);
+    /// La politica subio de seis caracteres a la del backend —ocho, con al
+    /// menos una letra y un numero— y este test se quedo con la anterior.
+    /// Comprueba cada regla por separado: si solo se mirara la longitud, una
+    /// clave de ocho digitos sin letras pasaria aqui y el servidor la
+    /// rechazaria despues, que es justo lo que la validacion local evita.
+    test('sigue la misma politica que el backend', () {
+      expect(passwordField('Clave123'), isNull);
+
+      expect(passwordField('Clav12'),
+          'La contraseña debe tener al menos 8 caracteres');
+      expect(passwordField('12345678'),
+          'La contraseña debe incluir al menos una letra');
+      expect(passwordField('abcdefgh'),
+          'La contraseña debe incluir al menos un número');
+      expect(passwordField('a1' * 40),
+          'La contraseña no puede tener más de 72 caracteres');
     });
   });
 

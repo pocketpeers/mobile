@@ -20,6 +20,7 @@ dependencies:
   fl_chart: ^0.69.2
   intl: ^0.20.1
   flutter_local_notifications: ^22.3.0
+  image_cropper: ^12.2.1
 
 dev_dependencies:
   flutter_test:

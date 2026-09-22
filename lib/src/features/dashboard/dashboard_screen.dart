@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
+import '../../core/metric_card_extent.dart';
 import '../../core/blockchain_hash_chip.dart';
 import '../../core/formatters.dart';
 import '../../core/skeleton.dart';
@@ -20,6 +21,7 @@ class DashboardScreen extends ConsumerWidget {
     final summary = ref.watch(dashboardSummaryProvider);
     final reputation = ref.watch(myReputationProvider);
     final history = ref.watch(myReputationHistoryProvider);
+    final scoreSeries = ref.watch(myScoreSeriesProvider);
     return Scaffold(
       // Home era la unica pestana sin AppBar: Grupos, Reportes y Ajustes ya
       // tenian la suya. Ponersela alinea la navegacion y libera el encabezado
@@ -46,6 +48,7 @@ class DashboardScreen extends ConsumerWidget {
           ref.invalidate(dashboardSummaryProvider);
           ref.invalidate(myReputationProvider);
           ref.invalidate(myReputationHistoryProvider);
+          ref.invalidate(myScoreSeriesProvider);
           ref.invalidate(myBadgesProvider);
           ref.invalidate(unreadNotificationCountProvider);
         },
@@ -76,6 +79,7 @@ class DashboardScreen extends ConsumerWidget {
             AnimatedSection(
               index: 4,
               child: _ReputationHistoryCard(
+                series: scoreSeries.valueOrNull ?? const [],
                 events: history.valueOrNull ?? const [],
               ),
             ),
@@ -140,7 +144,8 @@ class _SkeletonMetricGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
-      childAspectRatio: 1.05,
+      // Altura segun el texto, no segun el ancho. Ver metricCardExtent.
+      mainAxisExtent: metricCardExtent(context, labelLines: 2),
       children: const [
         _SkeletonMetricCard(),
         _SkeletonMetricCard(),
@@ -315,7 +320,8 @@ class _MetricGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
-      childAspectRatio: 1.05,
+      // Altura segun el texto, no segun el ancho. Ver metricCardExtent.
+      mainAxisExtent: metricCardExtent(context, labelLines: 2),
       children: [
         MetricCard(
           label: 'Gastos',
@@ -336,14 +342,32 @@ class _MetricGrid extends StatelessWidget {
     );
   }
 }
+/// Evolucion del score, con la banda de confianza detras.
+///
+/// La linea son cortes de tiempo que el backend recalcula con la evidencia que
+/// existia en cada momento, no el `resultingScore` guardado en cada evento. Ese
+/// campo pertenece al contador PBL anterior, que arrancaba en cero y sumaba
+/// puntos fijos; graficarlo mientras la tarjeta de arriba muestra PeerScore
+/// contaba dos historias distintas del mismo historial, y la persona no tenia
+/// forma de saber cual de las dos era la suya.
+///
+/// La banda va dibujada y no solo el numero porque el score es una estimacion:
+/// una linea sola afirmaria una precision que el motor no tiene, sobre todo al
+/// principio, cuando casi todo el valor viene del prior y no de lo que la
+/// persona hizo.
 class _ReputationHistoryCard extends StatelessWidget {
-  const _ReputationHistoryCard({required this.events});
+  const _ReputationHistoryCard({required this.series, required this.events});
 
+  final List<ScoreSeriesPoint> series;
   final List<ReputationEvent> events;
 
   @override
   Widget build(BuildContext context) {
-    final chartEvents = events.take(12).toList();
+    // El historial llega del mas antiguo al mas reciente. Lo ultimo que hizo la
+    // persona esta al final, no al principio: leer los tres primeros mostraba
+    // los tres eventos mas viejos de la ventana de noventa dias.
+    final recent = events.reversed.take(3).toList();
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -352,62 +376,187 @@ class _ReputationHistoryCard extends StatelessWidget {
           children: [
             Text('Evolucion del score',
                 style: Theme.of(context).textTheme.titleMedium),
+            if (series.length >= 2) ...[
+              const SizedBox(height: 2),
+              Text(
+                'La franja es el margen de confianza: se angosta a medida que el '
+                'sistema te conoce.',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: context.mutedIconColor),
+              ),
+            ],
             const SizedBox(height: 16),
             SizedBox(
               height: 160,
-              child: chartEvents.isEmpty
+              child: series.length < 2
                   ? const _DashboardEmptyState(
                       icon: Icons.trending_up_outlined,
                       title: 'Sin evolucion todavia',
                       message:
                           'Tu score se construira con tus primeras transacciones.',
                     )
-                  : LineChart(
-                      LineChartData(
-                        borderData: FlBorderData(show: false),
-                        gridData: const FlGridData(show: true),
-                        titlesData: const FlTitlesData(
-                          topTitles: AxisTitles(),
-                          rightTitles: AxisTitles(),
-                        ),
-                        lineBarsData: [
-                          LineChartBarData(
-                            spots: [
-                              for (var i = 0; i < chartEvents.length; i++)
-                                FlSpot(i.toDouble(),
-                                    chartEvents[i].resultingScore.toDouble()),
-                            ],
-                            color: context.successIconColor,
-                            barWidth: 3,
-                            dotData: const FlDotData(show: true),
-                          ),
-                        ],
-                      ),
-                    ),
+                  : _ScoreSeriesChart(series: series),
             ),
-            if (events.isNotEmpty) ...[
+            if (recent.isNotEmpty) ...[
               const SizedBox(height: 8),
-              for (final event in events.take(3))
+              for (final event in recent)
                 ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
-                    event.pointsDelta >= 0
+                    _favorable(event.type)
                         ? Icons.arrow_upward
                         : Icons.arrow_downward,
-                    color: event.pointsDelta >= 0
+                    color: _favorable(event.type)
                         ? context.successIconColor
                         : Colors.redAccent,
                   ),
                   title: Text(event.description.isEmpty
                       ? event.type
                       : event.description),
+                  // La fecha, y no el `pointsDelta`. Ese numero es el del motor
+                  // anterior: mostrar un «+3» al lado de una linea que en ese
+                  // momento subio 4.7 invita a sumar puntos que no existen.
                   trailing: Text(
-                      '${event.pointsDelta >= 0 ? '+' : ''}${event.pointsDelta}'),
+                    formatDate(event.occurredAt),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: context.mutedIconColor),
+                  ),
                 ),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Si el evento es de los que empujan el score hacia arriba.
+  ///
+  /// Un pago tardio cuenta como favorable aunque valga poco: cumplir tarde sigue
+  /// siendo cumplir, y la flecha describe la direccion, no la magnitud.
+  static bool _favorable(String type) => type != 'OVERDUE_PAYMENT';
+}
+
+class _ScoreSeriesChart extends StatelessWidget {
+  const _ScoreSeriesChart({required this.series});
+
+  final List<ScoreSeriesPoint> series;
+
+  @override
+  Widget build(BuildContext context) {
+    final line = context.successIconColor;
+
+    // El eje no se fija en 0-100: con scores tipicos entre 45 y 75 toda la
+    // variacion quedaria aplastada contra el centro. Se encuadra la banda con un
+    // margen, acotado al rango valido del score.
+    var low = series.first.bandLow;
+    var high = series.first.bandHigh;
+    for (final point in series) {
+      if (point.bandLow < low) low = point.bandLow;
+      if (point.bandHigh > high) high = point.bandHigh;
+    }
+    final margin = ((high - low) * 0.1).clamp(2.0, 10.0);
+    final minY = (low - margin).clamp(0.0, 100.0);
+    final maxY = (high + margin).clamp(0.0, 100.0);
+
+    List<FlSpot> spotsOf(double Function(ScoreSeriesPoint) value) => [
+          for (var i = 0; i < series.length; i++)
+            FlSpot(i.toDouble(), value(series[i])),
+        ];
+
+    return LineChart(
+      LineChartData(
+        minY: minY,
+        maxY: maxY,
+        borderData: FlBorderData(show: false),
+        gridData: const FlGridData(show: true, drawVerticalLine: false),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(),
+          rightTitles: const AxisTitles(),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              // Solo los extremos: con doce cortes, etiquetar todos deja un
+              // amasijo de fechas superpuestas en el ancho de un telefono.
+              getTitlesWidget: (value, meta) {
+                final index = value.round();
+                if (index != 0 && index != series.length - 1) {
+                  return const SizedBox.shrink();
+                }
+                final at = series[index].at;
+                if (at == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    shortDayMonthFormatter.format(at),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(color: context.mutedIconColor),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            // Solo la linea del score lleva etiqueta. Los bordes de la banda son
+            // las barras 0 y 1, y anotarlos repetiria tres veces el mismo toque.
+            getTooltipItems: (spots) => [
+              for (final spot in spots)
+                if (spot.barIndex == 2)
+                  LineTooltipItem(
+                    '${spot.y.round()}  ·  ${series[spot.x.round()].levelName}',
+                    TextStyle(
+                      color: line,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  )
+                else
+                  null,
+            ],
+          ),
+        ),
+        lineBarsData: [
+          // Los dos bordes de la banda, invisibles: fl_chart expresa un area
+          // sombreada como el relleno entre dos series, asi que tienen que
+          // existir como barras aunque no se dibujen.
+          LineChartBarData(
+            spots: spotsOf((point) => point.bandLow),
+            color: Colors.transparent,
+            barWidth: 0,
+            dotData: const FlDotData(show: false),
+          ),
+          LineChartBarData(
+            spots: spotsOf((point) => point.bandHigh),
+            color: Colors.transparent,
+            barWidth: 0,
+            dotData: const FlDotData(show: false),
+          ),
+          LineChartBarData(
+            spots: spotsOf((point) => point.score),
+            color: line,
+            barWidth: 3,
+            isCurved: true,
+            // Sin esto la curva puede sobrepasar los puntos y dibujar un score
+            // mayor al que el motor calculo.
+            preventCurveOverShooting: true,
+            dotData: FlDotData(show: series.length <= 14),
+          ),
+        ],
+        betweenBarsData: [
+          BetweenBarsData(
+            fromIndex: 0,
+            toIndex: 1,
+            color: line.withOpacity(0.14),
+          ),
+        ],
       ),
     );
   }
@@ -525,9 +674,19 @@ class _RecentTransactions extends StatelessWidget {
                       Text(payment.confirmed
                           ? payment.status
                           : '${payment.status} - sin confirmar'),
+                      // La fecha del pago, que no es la del anclaje: esa va
+                      // debajo del hash. Aqui interesa cuando ocurrio la
+                      // operacion; alli, cuando quedo probada.
+                      if (payment.createdAt != null)
+                        Text(
+                          formatDateTime(payment.createdAt),
+                          style: TextStyle(
+                              fontSize: 12, color: context.mutedIconColor),
+                        ),
                       const SizedBox(height: 6),
                       BlockchainHashChip(
                         hash: payment.blockchainHash,
+                        anchoredAt: payment.anchoredAt,
                         compact: true,
                       ),
                     ],
@@ -625,6 +784,12 @@ class MetricCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     label,
+                    // Tope de dos lineas: sin el, una etiqueta larga en una
+                    // pantalla estrecha se parte en tres y la tarjeta desborda.
+                    // Con el, en el peor caso se recorta con puntos suspensivos,
+                    // que se ve mal pero no rompe la pantalla.
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: isDark
                               ? Colors.white.withOpacity(0.66)
