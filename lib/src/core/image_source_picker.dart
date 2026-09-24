@@ -91,10 +91,14 @@ Future<XFile?> pickImageFromCameraOrGallery(
 
 /// Abre el recorte cuadrado y devuelve el resultado.
 ///
-/// Si la persona cancela, se devuelve la imagen original en vez de null:
-/// cancelar el recorte significa "me vale como esta", no "ya no quiero subir
-/// nada". Tratarlo como una cancelacion obligaria a repetir la eleccion desde
-/// el principio.
+/// Si la persona sale del recorte sin confirmar, se descarta la foto y se
+/// devuelve null. Retroceder de esa pantalla es la unica forma que tiene de
+/// arrepentirse una vez elegido el archivo: si en su lugar se quedara la
+/// imagen original, la foto aparece puesta sin que nadie la haya aceptado y
+/// hay que quitarla a mano.
+///
+/// El coste es repetir la eleccion desde el principio, que es exactamente lo
+/// que esta pidiendo quien retrocede.
 Future<XFile?> _cropToSquare(BuildContext context, XFile picked) async {
   try {
     final cropped = await ImageCropper().cropImage(
@@ -121,10 +125,11 @@ Future<XFile?> _cropToSquare(BuildContext context, XFile picked) async {
         ),
       ],
     );
-    return cropped == null ? picked : XFile(cropped.path);
+    return cropped == null ? null : XFile(cropped.path);
   } catch (_) {
-    // Que falle el recorte no debe costar la foto: se sube la original y el
-    // servidor la reescala igual.
+    // Esto es un fallo al abrir el recorte, no una decision de la persona: no
+    // llego a ver la pantalla, asi que no ha descartado nada. Se sube la
+    // original y el servidor la reescala igual.
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No se pudo abrir el recorte; se usara la foto completa')),
