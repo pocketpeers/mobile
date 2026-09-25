@@ -6,6 +6,7 @@ import '../../core/app_motion.dart';
 import '../../core/crew.dart';
 import '../../core/validators.dart';
 import '../../state/providers.dart';
+import 'membership_declaration_screen.dart';
 
 class JoinGroupDialog extends ConsumerStatefulWidget {
   const JoinGroupDialog({super.key});
@@ -54,11 +55,15 @@ class _JoinGroupDialogState extends ConsumerState<JoinGroupDialog> {
     final session = ref.read(authControllerProvider).valueOrNull;
     final token = _token.text.trim();
     if (session == null || token.isEmpty) return;
+    final signed = await signMembershipDeclaration(context, token: token);
+    if (signed == null || !mounted) return;
     setState(() => _saving = true);
     try {
       final member = await ref.read(apiProvider).joinGroup(
             userId: session.id,
             token: token,
+            acceptedDeclarationVersion: signed.version,
+            signatureImage: signed.signaturePng,
           );
       ref.invalidate(groupsProvider);
       invalidateGroup(ref, member.groupId);

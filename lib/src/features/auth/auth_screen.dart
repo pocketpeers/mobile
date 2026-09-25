@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -552,8 +553,55 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (!mounted) return;
     final error = ref.read(authControllerProvider).error;
     if (error != null) {
-      _showErrorSnackBar(_authErrorMessage(error));
+      final identityCode = _isRegistering ? _identityErrorCode(error) : null;
+      if (identityCode != null) {
+        await _showIdentityDialog(identityCode, _authErrorMessage(error));
+      } else {
+        _showErrorSnackBar(_authErrorMessage(error));
+      }
     }
+  }
+
+  /// Códigos con los que el backend rechaza el alta por la verificación del DNI.
+  static const _identityMismatch = 'IDENTITY_MISMATCH';
+  static const _identityLookupLimit = 'IDENTITY_LOOKUP_LIMIT';
+
+  /// El código de verificación de identidad que trae el error, si lo trae.
+  String? _identityErrorCode(Object error) {
+    if (error is! DioException) return null;
+    final data = error.response?.data;
+    if (data is! Map) return null;
+    final code = data['error'];
+    return code == _identityMismatch || code == _identityLookupLimit
+        ? code as String
+        : null;
+  }
+
+  /// Avisa que el DNI no coincide con el nombre, o que se agotaron los intentos.
+  ///
+  /// Va en un diálogo y no en el SnackBar de los demás errores: el SnackBar se
+  /// va solo a los cinco segundos, y este aviso pide una acción concreta
+  /// —corregir el nombre o el DNI— que alguien con poca práctica digital
+  /// necesita leer con calma. El formulario conserva lo escrito, así que basta
+  /// con corregir el campo equivocado.
+  Future<void> _showIdentityDialog(String code, String message) async {
+    final isMismatch = code == _identityMismatch;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(isMismatch ? Icons.badge_outlined : Icons.schedule_outlined),
+        title: Text(
+          isMismatch ? 'El DNI no coincide' : 'Límite de intentos alcanzado',
+        ),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(isMismatch ? 'Corregir' : 'Entendido'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Pide revisar los datos antes de crear la cuenta.

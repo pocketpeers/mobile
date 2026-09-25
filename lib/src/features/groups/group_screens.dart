@@ -23,6 +23,8 @@ import '../../state/providers.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../expenses/expense_screens.dart';
 import 'join_group_dialog.dart';
+import 'membership_declaration_screen.dart';
+import 'signed_declarations_screens.dart';
 
 const _groupDescriptionMaxLength = 100;
 
@@ -303,6 +305,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     if (!_formKey.currentState!.validate()) return;
     final session = ref.read(authControllerProvider).valueOrNull;
     if (session == null) return;
+    final signed =
+        await signMembershipDeclaration(context, groupName: _name.text.trim());
+    if (signed == null || !mounted) return;
     setState(() => _saving = true);
     try {
       var groupPhoto = '';
@@ -315,6 +320,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             name: _name.text.trim(),
             description: _description.text.trim(),
             adminId: session.id,
+            acceptedDeclarationVersion: signed.version,
+            signatureImage: signed.signaturePng,
             groupPhoto: groupPhoto,
           );
       ref.invalidate(groupsProvider);
@@ -406,6 +413,19 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
           // ya lo exige. Mostrar el boton a todos solo producia un dialogo que
           // no abria nunca: quien no administra pulsaba y no pasaba nada, sin
           // ninguna pista de por que.
+          // Las declaraciones de los miembros solo las ve quien administra
+          // este grupo; el backend lo exige igual.
+          if (isAdmin)
+            IconButton(
+              tooltip: 'Declaraciones firmadas',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      SignedDeclarationsScreen(groupId: widget.groupId),
+                ),
+              ),
+              icon: const Icon(Icons.assignment_outlined),
+            ),
           if (isAdmin)
             IconButton(
               tooltip: 'Invitacion',

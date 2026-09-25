@@ -158,6 +158,69 @@ class GroupMember {
       );
 }
 
+/// Declaracion jurada que hay que firmar para entrar a un grupo.
+///
+/// El texto lo arma el servidor con el nombre, el DNI y el grupo ya puestos;
+/// la aplicacion solo lo muestra y devuelve la version aceptada.
+class MembershipDeclaration {
+  const MembershipDeclaration({required this.version, required this.text});
+
+  final String version;
+  final String text;
+
+  factory MembershipDeclaration.fromJson(Map<String, Object?> json) =>
+      MembershipDeclaration(
+        version: json['version']?.toString() ?? '',
+        text: json['text']?.toString() ?? '',
+      );
+}
+
+/// Una declaracion jurada ya firmada. El PDF se descarga aparte.
+class SignedDeclaration {
+  const SignedDeclaration({
+    required this.id,
+    required this.groupId,
+    required this.groupName,
+    required this.currentGroupName,
+    required this.userId,
+    required this.fullName,
+    required this.version,
+    this.acceptedAt,
+  });
+
+  final int id;
+  final int groupId;
+
+  /// Nombre del grupo cuando se firmo: es el que figura en el PDF.
+  final String groupName;
+
+  /// Nombre actual, o null si el grupo ya no existe.
+  final String? currentGroupName;
+  final int userId;
+  final String fullName;
+  final String version;
+  final DateTime? acceptedAt;
+
+  /// Nombre a mostrar: el actual si el grupo sigue existiendo.
+  String get displayGroupName => currentGroupName ?? groupName;
+
+  /// Si el grupo cambio de nombre despues de la firma.
+  bool get groupWasRenamed =>
+      currentGroupName != null && currentGroupName != groupName;
+
+  factory SignedDeclaration.fromJson(Map<String, Object?> json) =>
+      SignedDeclaration(
+        id: _toInt(json['id']),
+        groupId: _toInt(json['groupId']),
+        groupName: json['groupName']?.toString() ?? '',
+        currentGroupName: json['currentGroupName']?.toString(),
+        userId: _toInt(json['userId']),
+        fullName: json['fullName']?.toString() ?? '',
+        version: json['declarationVersion']?.toString() ?? '',
+        acceptedAt: _toDate(json['acceptedAt'])?.toLocal(),
+      );
+}
+
 class Expense {
   const Expense({
     required this.id,

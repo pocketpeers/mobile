@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../core/config.dart';
+import '../core/device_id.dart';
 import 'models.dart';
 
 typedef JsonMap = Map<String, Object?>;
@@ -193,8 +195,15 @@ class PocketPeersApi {
     required String documentType,
     required String documentNumber,
   }) async {
+    // El backend verifica el DNI en este paso y limita los intentos por
+    // teléfono; sin este encabezado todos los teléfonos compartirían un único
+    // contador.
+    final deviceId = await DeviceId.get();
     final response = await _dio.post<JsonMap>(
       '/api/v1/authentication/sign-up/request',
+      options: Options(
+        headers: {if (deviceId != null) 'X-Device-Id': deviceId},
+      ),
       data: {
         'username': username,
         'password': password,
@@ -364,6 +373,8 @@ class PocketPeersApi {
     required String name,
     required String description,
     required int adminId,
+    required String acceptedDeclarationVersion,
+    required String signatureImage,
     String groupPhoto = '',
   }) async {
     final response = await _dio.post<JsonMap>(
@@ -373,6 +384,8 @@ class PocketPeersApi {
         'description': description,
         'groupPhoto': groupPhoto,
         'adminId': adminId,
+        'acceptedDeclarationVersion': acceptedDeclarationVersion,
+        'signatureImage': signatureImage,
       },
     );
     return Group.fromJson(response.data ?? {});
@@ -413,12 +426,66 @@ class PocketPeersApi {
   Future<GroupMember> joinGroup({
     required int userId,
     required String token,
+    required String acceptedDeclarationVersion,
+    required String signatureImage,
   }) async {
     final response = await _dio.post<JsonMap>(
       '/api/v1/groups/join',
-      data: {'userId': userId, 'token': token},
+      data: {
+        'userId': userId,
+        'token': token,
+        'acceptedDeclarationVersion': acceptedDeclarationVersion,
+        'signatureImage': signatureImage,
+      },
     );
     return GroupMember.fromJson(response.data ?? {});
+  }
+
+  /// Declaraciones que firmo el usuario de la sesion.
+  Future<List<SignedDeclaration>> getMyDeclarations() async {
+    final response = await _dio.get<List<dynamic>>('/api/v1/group-declarations/me');
+    return (response.data ?? [])
+        .map((item) => SignedDeclaration.fromJson(item as JsonMap))
+        .toList();
+  }
+
+  /// Declaraciones firmadas en un grupo. El backend solo responde al administrador.
+  Future<List<SignedDeclaration>> getGroupDeclarations(int groupId) async {
+    final response = await _dio
+        .get<List<dynamic>>('/api/v1/group-declarations/groups/$groupId');
+    return (response.data ?? [])
+        .map((item) => SignedDeclaration.fromJson(item as JsonMap))
+        .toList();
+  }
+
+  Future<Uint8List> getDeclarationPdf(int declarationId) async {
+    final response = await _dio.get<List<int>>(
+      '/api/v1/group-declarations/$declarationId/pdf',
+      // Sin cambiar el Accept por defecto (JSON), Spring no puede responder con
+      // un PDF, desvia a /error y eso llega como 401: la app lo tomaba por
+      // sesion vencida y sacaba al usuario.
+      options: Options(
+        responseType: ResponseType.bytes,
+        headers: {'Accept': 'application/pdf'},
+      ),
+    );
+    return Uint8List.fromList(response.data ?? const []);
+  }
+
+  /// Declaracion jurada a firmar: con [token] para unirse con codigo, con
+  /// [groupName] para el grupo que se esta creando.
+  Future<MembershipDeclaration> getMembershipDeclaration({
+    String? token,
+    String? groupName,
+  }) async {
+    final response = await _dio.get<JsonMap>(
+      '/api/v1/group-declarations/preview',
+      queryParameters: {
+        if (token != null) 'token': token,
+        if (groupName != null) 'groupName': groupName,
+      },
+    );
+    return MembershipDeclaration.fromJson(response.data ?? {});
   }
 
   Future<List<GroupMember>> getGroupMembers(int groupId) async {

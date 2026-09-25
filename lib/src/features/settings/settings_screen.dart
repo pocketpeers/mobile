@@ -15,6 +15,7 @@ import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../groups/join_group_dialog.dart';
 import 'badge_progress.dart';
+import '../groups/signed_declarations_screens.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -138,6 +139,19 @@ class SettingsScreen extends ConsumerWidget {
                   const Divider(height: 1),
                   */
                   const _NotificationSettingsTile(),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(Icons.draw_outlined,
+                        color: context.primaryIconColor),
+                    title: const Text('Mis declaraciones'),
+                    subtitle: const Text(
+                        'Declaraciones juradas que firmaste en tus grupos'),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const SignedDeclarationsScreen(),
+                      ),
+                    ),
+                  ),
                   const Divider(height: 1),
                   ListTile(
                     leading: Icon(Icons.password_outlined,
