@@ -398,6 +398,9 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   Future<void> _showForegroundFcmReminder(RemoteMessage message) async {
     if (!mounted) return;
+    if (message.data['type'] == 'group_invitation') {
+      ref.invalidate(myInvitationsProvider);
+    }
     final notificationId =
         int.tryParse(message.data['notificationId']?.toString() ?? '');
     if (notificationId != null) {
@@ -417,6 +420,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       _openPaymentFromData(message.data);
 
   void _openPaymentFromData(Map<String, dynamic> data) {
+    if (_openInvitationFromData(data)) return;
     final notificationId =
         int.tryParse(data['notificationId']?.toString() ?? '');
     if (notificationId != null) {
@@ -426,6 +430,28 @@ class _AppShellState extends ConsumerState<AppShell> {
     final paymentId = int.tryParse(data['paymentId']?.toString() ?? '');
     if (paymentId == null || !mounted) return;
     context.push('/payments/$paymentId');
+  }
+
+  /// Los avisos de invitacion no son recordatorios de pago: no tienen
+  /// notificationId ni paymentId, y llevan a los grupos en vez de a un pago.
+  bool _openInvitationFromData(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? '';
+    if (!type.startsWith('group_invitation')) return false;
+    if (!mounted) return true;
+    if (type == 'group_invitation') {
+      // A quien invitaron: la invitacion esta arriba en la pestana Grupos.
+      ref.invalidate(myInvitationsProvider);
+      context.go('/groups');
+      return true;
+    }
+    // Al administrador: respondieron su invitacion.
+    final groupId = int.tryParse(data['groupId']?.toString() ?? '');
+    if (groupId != null) {
+      ref.invalidate(groupInvitationsProvider(groupId));
+      invalidateGroup(ref, groupId);
+      context.push('/groups/$groupId');
+    }
+    return true;
   }
 
   Future<void> _pollReminders() async {

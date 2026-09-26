@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/next_level_hint.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/badge_visuals.dart';
@@ -446,7 +447,11 @@ class _EditProfileDialogState extends ConsumerState<_EditProfileDialog> {
   }
 
   Future<void> _pickPhoto() async {
-    final image = await pickImageFromCameraOrGallery(context, cropToSquare: true);
+    final image = await pickImageFromCameraOrGallery(
+      context,
+      cropToSquare: true,
+      title: 'Foto de perfil',
+    );
     if (image == null) return;
     // Solo se guarda la referencia local: la subida espera a _save.
     setState(() => _pendingPhoto = image);
@@ -534,9 +539,7 @@ class _ReputationCard extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                     )),
             Text(reputation.levelDescription),
-            if (reputation.pointsToNextLevel > 0)
-              Text(
-                  'Faltan ${reputation.pointsToNextLevel} puntos para el siguiente nivel'),
+            if (nextLevelHint(reputation) case final hint?) Text(hint),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,

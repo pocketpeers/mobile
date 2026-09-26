@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'app_motion.dart';
 import 'app_theme.dart';
 
 /// Elige una imagen de la camara o de la galeria.
@@ -24,35 +25,10 @@ Future<XFile?> pickImageFromCameraOrGallery(
   BuildContext context, {
   ImagePicker? picker,
   bool cropToSquare = false,
+  String title = 'Agregar foto',
+  String? hint,
 }) async {
-  final source = await showModalBottomSheet<ImageSource>(
-    context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: Icon(
-              Icons.photo_camera_outlined,
-              color: context.primaryIconColor,
-            ),
-            title: const Text('Tomar foto'),
-            onTap: () => Navigator.of(context).pop(ImageSource.camera),
-          ),
-          ListTile(
-            leading: Icon(
-              Icons.photo_library_outlined,
-              color: context.primaryIconColor,
-            ),
-            title: const Text('Elegir de galeria'),
-            onTap: () => Navigator.of(context).pop(ImageSource.gallery),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    ),
-  );
+  final source = await showImageSourceDialog(context, title: title, hint: hint);
   if (source == null) return null;
 
   try {
@@ -132,9 +108,191 @@ Future<XFile?> _cropToSquare(BuildContext context, XFile picked) async {
     // original y el servidor la reescala igual.
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir el recorte; se usara la foto completa')),
+        const SnackBar(
+            content:
+                Text('No se pudo abrir el recorte; se usara la foto completa')),
       );
     }
     return picked;
+  }
+}
+
+/// Pregunta de donde sale la imagen: camara o galeria.
+///
+/// Antes era una hoja inferior con dos filas de texto sueltas, que en modo
+/// oscuro se confundian con el fondo y no decian para que era la foto. Ahora es
+/// un dialogo con el motivo arriba y dos opciones grandes, faciles de tocar
+/// con el pulgar. Los colores salen de la paleta de la app y no del esquema
+/// que Material deriva del color base, que en oscuro daba un fondo que no
+/// combinaba con las tarjetas.
+Future<ImageSource?> showImageSourceDialog(
+  BuildContext context, {
+  String title = 'Agregar foto',
+  String? hint,
+}) {
+  return showAppDialog<ImageSource>(
+    context: context,
+    builder: (context) => _ImageSourceDialog(title: title, hint: hint),
+  );
+}
+
+class _ImageSourceDialog extends StatelessWidget {
+  const _ImageSourceDialog({required this.title, this.hint});
+
+  final String title;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = context.isDarkMode;
+    return Dialog(
+      backgroundColor: dark ? AppColors.darkSurface : Colors.white,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: dark ? AppColors.darkLine : AppColors.line),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: dark ? Colors.white : AppColors.navy,
+                ),
+              ),
+              if (hint != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  hint!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: context.mutedIconColor),
+                ),
+              ],
+              const SizedBox(height: 20),
+              // IntrinsicHeight: las dos opciones miden lo mismo aunque una
+              // etiqueta se parta en dos lineas con letra grande.
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _SourceOption(
+                        icon: Icons.photo_camera_outlined,
+                        label: 'Tomar foto',
+                        caption: 'Con la camara',
+                        onTap: () =>
+                            Navigator.of(context).pop(ImageSource.camera),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _SourceOption(
+                        icon: Icons.photo_library_outlined,
+                        label: 'Galeria',
+                        caption: 'De tus fotos',
+                        onTap: () =>
+                            Navigator.of(context).pop(ImageSource.gallery),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(
+                  foregroundColor: context.mutedIconColor,
+                ),
+                child: const Text('Cancelar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceOption extends StatelessWidget {
+  const _SourceOption({
+    required this.icon,
+    required this.label,
+    required this.caption,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String caption;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = context.isDarkMode;
+    final radius = BorderRadius.circular(16);
+    return Semantics(
+      button: true,
+      label: '$label. $caption',
+      excludeSemantics: true,
+      child: Material(
+        // Un escalon por encima del fondo del dialogo, en los dos modos: asi
+        // la opcion se lee como algo que se toca y no como texto suelto.
+        color: dark ? const Color(0xFF102F53) : AppColors.mist,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(color: dark ? AppColors.darkLine : AppColors.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: context.primaryIconContainerColor,
+                  ),
+                  child: Icon(icon, size: 28, color: context.primaryIconColor),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: dark ? Colors.white : AppColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  caption,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: context.mutedIconColor),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

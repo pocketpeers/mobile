@@ -205,7 +205,11 @@ class _CreateExpenseScreenState extends ConsumerState<CreateExpenseScreen> {
   }
 
   Future<void> _scanReceipt() async {
-    final image = await pickImageFromCameraOrGallery(context);
+    final image = await pickImageFromCameraOrGallery(
+      context,
+      title: 'Foto del comprobante',
+      hint: 'Que se lean bien el monto y la fecha.',
+    );
     if (image == null) return;
     setState(() => _scanningReceipt = true);
     var uploadedImageId = '';
@@ -779,160 +783,167 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
           _poller.restart();
         },
         child: payment.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => ErrorView(
-          title: 'No se pudo cargar el pago',
-          onRetry: () => ref.invalidate(paymentProvider(widget.paymentId)),
-        ),
-        data: (item) {
-          final expense = ref.watch(expenseProvider(item.expenseId));
-          final expenseOwnerId = expense.valueOrNull?.userId;
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, stackTrace) => ErrorView(
+            title: 'No se pudo cargar el pago',
+            onRetry: () => ref.invalidate(paymentProvider(widget.paymentId)),
+          ),
+          data: (item) {
+            final expense = ref.watch(expenseProvider(item.expenseId));
+            final expenseOwnerId = expense.valueOrNull?.userId;
 
-          // Quien mira decide que se muestra; los permisos de abajo deciden que
-          // esta habilitado. Son cosas distintas: al deudor que ya cubrio su
-          // deuda hay que seguir mostrandole sus controles, apagados y con el
-          // motivo, mientras que a quien no es el deudor no le sirve de nada
-          // verlos ni siquiera apagados.
-          //
-          // Quien confirma es el creador del gasto, que no siempre coincide con
-          // el administrador del grupo: el backend valida exactamente eso en
-          // ConfirmPaymentCommand, y la vista no debe prometer algo distinto.
-          final isDebtor = session?.id == item.userId;
-          final isExpenseOwner =
-              expenseOwnerId != null && session?.id == expenseOwnerId;
+            // Quien mira decide que se muestra; los permisos de abajo deciden que
+            // esta habilitado. Son cosas distintas: al deudor que ya cubrio su
+            // deuda hay que seguir mostrandole sus controles, apagados y con el
+            // motivo, mientras que a quien no es el deudor no le sirve de nada
+            // verlos ni siquiera apagados.
+            //
+            // Quien confirma es el creador del gasto, que no siempre coincide con
+            // el administrador del grupo: el backend valida exactamente eso en
+            // ConfirmPaymentCommand, y la vista no debe prometer algo distinto.
+            final isDebtor = session?.id == item.userId;
+            final isExpenseOwner =
+                expenseOwnerId != null && session?.id == expenseOwnerId;
 
-          final isCompletedAndConfirmed = item.confirmed && item.remaining <= 0;
-          final canRegisterPayment = session?.id == item.userId &&
-              !isCompletedAndConfirmed &&
-              item.remaining > 0;
-          final canConfirmPayment = session?.id == expenseOwnerId &&
-              !item.confirmed &&
-              item.status != 'PENDING';
-          final canViewEvidence = item.evidencePhotos.isNotEmpty;
+            final isCompletedAndConfirmed =
+                item.confirmed && item.remaining <= 0;
+            final canRegisterPayment = session?.id == item.userId &&
+                !isCompletedAndConfirmed &&
+                item.remaining > 0;
+            final canConfirmPayment = session?.id == expenseOwnerId &&
+                !item.confirmed &&
+                item.status != 'PENDING';
+            final canViewEvidence = item.evidencePhotos.isNotEmpty;
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.description,
-                          style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _StatusPill(status: item.status),
-                          _StatusPill(
-                              status: item.confirmed
-                                  ? 'CONFIRMADO'
-                                  : 'SIN CONFIRMAR'),
-                          BlockchainHashChip(
-                            hash: item.blockchainHash,
-                            anchoredAt: item.anchoredAt,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      _PaymentRows(payment: item),
-                      if (expense.isLoading) ...[
-                        const SizedBox(height: 8),
-                        const LinearProgressIndicator(),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              if (canViewEvidence) ...[
-                const SizedBox(height: 16),
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Evidencia',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 12),
-                        _PaymentEvidenceGrid(imageRefs: item.evidencePhotos),
+                        Text(item.description,
+                            style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _StatusPill(status: item.status),
+                            _StatusPill(
+                                status: item.confirmed
+                                    ? 'CONFIRMADO'
+                                    : 'SIN CONFIRMAR'),
+                            BlockchainHashChip(
+                              hash: item.blockchainHash,
+                              anchoredAt: item.anchoredAt,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _PaymentRows(payment: item),
+                        if (expense.isLoading) ...[
+                          const SizedBox(height: 8),
+                          const LinearProgressIndicator(),
+                        ],
                       ],
                     ),
                   ),
                 ),
-              ],
-              // Abonar y adjuntar evidencia son actos del deudor. A quien no lo
-              // es no se le muestran: antes aparecian apagados, ocupando la
-              // pantalla con acciones que nunca iba a poder ejecutar.
-              if (isDebtor) ...[
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _amount,
-                  enabled: canRegisterPayment,
-                  decoration: InputDecoration(
-                    labelText: 'Abono',
-                    helperText: isCompletedAndConfirmed
-                        ? 'Este pago ya fue confirmado por completo'
-                        : canRegisterPayment
-                            ? null
-                            : item.confirmed
-                                ? 'El abono anterior fue confirmado; puedes registrar otro abono parcial'
-                                : 'Ya cubriste el monto; falta que confirmen la recepcion',
+                if (canViewEvidence) ...[
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Evidencia',
+                              style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 12),
+                          _PaymentEvidenceGrid(imageRefs: item.evidencePhotos),
+                        ],
+                      ),
+                    ),
                   ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: canRegisterPayment ? _pickEvidence : null,
-                  icon: const Icon(Icons.image_outlined),
-                  label: Text(
-                      _evidence == null ? 'Cargar evidencia' : _evidence!.name),
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed:
-                      canRegisterPayment && !_saving ? _registerPayment : null,
-                  icon: _saving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.payments_outlined),
-                  label: const Text('Registrar abono'),
-                ),
+                ],
+                // Abonar y adjuntar evidencia son actos del deudor. A quien no lo
+                // es no se le muestran: antes aparecian apagados, ocupando la
+                // pantalla con acciones que nunca iba a poder ejecutar.
+                if (isDebtor) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _amount,
+                    enabled: canRegisterPayment,
+                    decoration: InputDecoration(
+                      labelText: 'Abono',
+                      helperText: isCompletedAndConfirmed
+                          ? 'Este pago ya fue confirmado por completo'
+                          : canRegisterPayment
+                              ? null
+                              : item.confirmed
+                                  ? 'El abono anterior fue confirmado; puedes registrar otro abono parcial'
+                                  : 'Ya cubriste el monto; falta que confirmen la recepcion',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: canRegisterPayment ? _pickEvidence : null,
+                    icon: const Icon(Icons.image_outlined),
+                    label: Text(_evidence == null
+                        ? 'Cargar evidencia'
+                        : _evidence!.name),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: canRegisterPayment && !_saving
+                        ? _registerPayment
+                        : null,
+                    icon: _saving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.payments_outlined),
+                    label: const Text('Registrar abono'),
+                  ),
+                ],
+                // Confirmar la recepcion es del acreedor. Cuando el creador del
+                // gasto se asigno una cuota a si mismo cumple los dos papeles, y
+                // entonces ve todo.
+                if (isExpenseOwner) ...[
+                  const SizedBox(height: 12),
+                  FilledButton.tonalIcon(
+                    onPressed: canConfirmPayment && !_confirming
+                        ? () => _confirmPayment(item)
+                        : null,
+                    icon: _confirming
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.verified_outlined),
+                    label: const Text('Confirmar recepcion'),
+                  ),
+                ],
               ],
-              // Confirmar la recepcion es del acreedor. Cuando el creador del
-              // gasto se asigno una cuota a si mismo cumple los dos papeles, y
-              // entonces ve todo.
-              if (isExpenseOwner) ...[
-                const SizedBox(height: 12),
-                FilledButton.tonalIcon(
-                  onPressed: canConfirmPayment && !_confirming
-                      ? () => _confirmPayment(item)
-                      : null,
-                  icon: _confirming
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.verified_outlined),
-                  label: const Text('Confirmar recepcion'),
-                ),
-              ],
-            ],
-          );
-        },
+            );
+          },
         ),
       ),
     );
   }
 
   Future<void> _pickEvidence() async {
-    final image = await pickImageFromCameraOrGallery(context);
+    final image = await pickImageFromCameraOrGallery(
+      context,
+      title: 'Evidencia de pago',
+      hint: 'Una captura o foto de la transferencia o el voucher.',
+    );
     if (image != null) setState(() => _evidence = image);
   }
 
@@ -1028,7 +1039,6 @@ class _PaymentDetailScreenState extends ConsumerState<PaymentDetailScreen> {
         ref.read(expenseProvider(currentPayment.expenseId)).valueOrNull;
     if (expense != null) invalidateGroup(ref, expense.groupId);
   }
-
 }
 
 class ReportsScreen extends ConsumerStatefulWidget {
@@ -1040,8 +1050,9 @@ class ReportsScreen extends ConsumerStatefulWidget {
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   final _search = TextEditingController();
-  List<Expense>? _results;
-  var _searching = false;
+
+  /// Lo escrito en el buscador, en minusculas. Filtra mientras se escribe.
+  var _query = '';
 
   @override
   void dispose() {
@@ -1072,74 +1083,28 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     Text('Buscar gasto',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _search,
-                            decoration: const InputDecoration(
-                              labelText: 'Nombre del gasto',
-                              prefixIcon: Icon(Icons.search),
-                            ),
-                            onSubmitted: (_) => _searchExpenses(),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          onPressed: _searching ? null : _searchExpenses,
-                          style: IconButton.styleFrom(
-                            backgroundColor: context.successIconColor,
-                            foregroundColor: Colors.white,
-                            disabledBackgroundColor:
-                                context.successIconColor.withOpacity(0.42),
-                            disabledForegroundColor: Colors.white70,
-                          ),
-                          icon: _searching
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.search),
-                        ),
-                        if (_results != null)
-                          IconButton(
-                            onPressed: () => setState(() {
-                              _results = null;
-                              _search.clear();
-                            }),
-                            icon: const Icon(Icons.close),
-                          ),
-                      ],
+                    TextField(
+                      controller: _search,
+                      onChanged: (value) =>
+                          setState(() => _query = value.trim().toLowerCase()),
+                      decoration: InputDecoration(
+                        hintText: 'Nombre del gasto',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _query.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Limpiar',
+                                icon: const Icon(Icons.close),
+                                onPressed: () {
+                                  _search.clear();
+                                  setState(() => _query = '');
+                                },
+                              ),
+                      ),
                     ),
-                    if (_results != null) ...[
+                    if (_query.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      if (_results!.isEmpty)
-                        const Text(
-                            'No se encontraron resultados para la busqueda')
-                      else
-                        for (final expense in _results!)
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.receipt_long_outlined),
-                            title: Text(expense.name),
-                            subtitle: Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                Text('Vence ${formatDate(expense.dueDate)}'),
-                                BlockchainHashChip(
-                                  hash: expense.blockchainHash,
-                                  anchoredAt: expense.anchoredAt,
-                                  compact: true,
-                                ),
-                              ],
-                            ),
-                            trailing: Text(formatCurrency(expense.amount)),
-                          ),
+                      _ExpenseSearchResults(query: _query),
                     ],
                   ],
                 ),
@@ -1271,20 +1236,76 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ),
     );
   }
+}
 
-  Future<void> _searchExpenses() async {
-    final query = _search.text.trim();
-    if (query.isEmpty) {
-      setState(() => _results = null);
-      return;
-    }
-    setState(() => _searching = true);
-    try {
-      final result = await ref.read(apiProvider).searchExpenses(query);
-      if (mounted) setState(() => _results = result);
-    } finally {
-      if (mounted) setState(() => _searching = false);
-    }
+/// Gastos de los grupos propios cuyo nombre contiene [query].
+class _ExpenseSearchResults extends ConsumerWidget {
+  const _ExpenseSearchResults({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final expenses = ref.watch(myExpensesProvider);
+    final groupNames = {
+      for (final group in ref.watch(groupsProvider).valueOrNull ?? const [])
+        group.id: group.name,
+    };
+    return expenses.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(
+          child: SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ),
+      ),
+      error: (error, stackTrace) =>
+          const Text('No se pudieron cargar tus gastos'),
+      data: (items) {
+        final matches = items
+            .where((expense) => expense.name.toLowerCase().contains(query))
+            .toList()
+          ..sort((a, b) => (b.dueDate ?? DateTime(0))
+              .compareTo(a.dueDate ?? DateTime(0)));
+        if (matches.isEmpty) {
+          return const Text('Ningun gasto coincide con la busqueda');
+        }
+        return Column(
+          children: [
+            for (final expense in matches)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: Text(expense.name),
+                subtitle: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    // Busca en todos los grupos: sin el nombre no se sabe de
+                    // cual es cada resultado.
+                    Text([
+                      if (groupNames[expense.groupId] case final name?) name,
+                      'Vence ${formatDate(expense.dueDate)}',
+                    ].join(' · ')),
+                    BlockchainHashChip(
+                      hash: expense.blockchainHash,
+                      anchoredAt: expense.anchoredAt,
+                      compact: true,
+                    ),
+                  ],
+                ),
+                trailing: Text(formatCurrency(expense.amount)),
+                onTap: () => context.push(
+                  '/groups/${expense.groupId}/expenses/${expense.id}',
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -1516,7 +1537,8 @@ class _AmountRow extends StatelessWidget {
 /// a los pocos segundos y el bloqueo del boton se queda: sin algo permanente,
 /// quien vuelve a la pantalla ve "Registrar gasto" apagado y no sabe por que.
 class _DuplicateReceiptBanner extends StatelessWidget {
-  const _DuplicateReceiptBanner({required this.message, required this.onReplace});
+  const _DuplicateReceiptBanner(
+      {required this.message, required this.onReplace});
 
   final String message;
   final VoidCallback onReplace;

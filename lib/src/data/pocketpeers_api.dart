@@ -362,14 +362,6 @@ class PocketPeersApi {
     return _list(response.data, Group.fromJson);
   }
 
-  Future<List<Group>> searchGroups(String name) async {
-    final response = await _dio.get<List<dynamic>>(
-      '/api/v1/groups/search',
-      queryParameters: {'name': name},
-    );
-    return _list(response.data, Group.fromJson);
-  }
-
   Future<Group> getGroup(int groupId) async {
     final response = await _dio.get<JsonMap>('/api/v1/groups/$groupId');
     return Group.fromJson(response.data ?? {});
@@ -427,6 +419,73 @@ class PocketPeersApi {
     final response =
         await _dio.post<String>('/api/v1/groups/$groupId/generate-invitation');
     return response.data ?? '';
+  }
+
+  /// Busca a quien invitar. Null si no existe ese usuario.
+  Future<InvitationCandidate?> findInvitationCandidate({
+    required int groupId,
+    required String username,
+  }) async {
+    try {
+      final response = await _dio.get<JsonMap>(
+        '/api/v1/groups/$groupId/invitations/candidate',
+        queryParameters: {'username': username},
+      );
+      return InvitationCandidate.fromJson(response.data ?? {});
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<GroupInvitation> inviteMember({
+    required int groupId,
+    required String username,
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/groups/$groupId/invitations',
+      data: {'username': username},
+    );
+    return GroupInvitation.fromJson(response.data ?? {});
+  }
+
+  /// Invitaciones pendientes de un grupo. Solo responde al administrador.
+  Future<List<GroupInvitation>> getGroupInvitations(int groupId) async {
+    final response =
+        await _dio.get<List<dynamic>>('/api/v1/groups/$groupId/invitations');
+    return _list(response.data, GroupInvitation.fromJson);
+  }
+
+  Future<void> cancelInvitation({
+    required int groupId,
+    required int invitationId,
+  }) async {
+    await _dio.delete<void>('/api/v1/groups/$groupId/invitations/$invitationId');
+  }
+
+  /// Invitaciones pendientes del usuario de la sesion.
+  Future<List<GroupInvitation>> getMyInvitations() async {
+    final response = await _dio.get<List<dynamic>>('/api/v1/invitations/me');
+    return _list(response.data, GroupInvitation.fromJson);
+  }
+
+  Future<GroupMember> acceptInvitation({
+    required int invitationId,
+    required String acceptedDeclarationVersion,
+    required String signatureImage,
+  }) async {
+    final response = await _dio.post<JsonMap>(
+      '/api/v1/invitations/$invitationId/accept',
+      data: {
+        'acceptedDeclarationVersion': acceptedDeclarationVersion,
+        'signatureImage': signatureImage,
+      },
+    );
+    return GroupMember.fromJson(response.data ?? {});
+  }
+
+  Future<void> rejectInvitation(int invitationId) async {
+    await _dio.post<void>('/api/v1/invitations/$invitationId/reject');
   }
 
   Future<GroupMember> joinGroup({
@@ -543,16 +602,6 @@ class PocketPeersApi {
       '/api/v1/expenses/groupId/$groupId/blockchain-status',
     );
     return BlockchainStatus.fromJson(response.data ?? {});
-  }
-
-  Future<List<Expense>> searchExpenses(String name) async {
-    final response = await _dio.get<List<dynamic>>(
-      '/api/v1/expenses/search',
-      queryParameters: {'name': name},
-    );
-    return _list(response.data, Expense.fromJson)
-        .where((expense) => expense.isActive)
-        .toList();
   }
 
   Future<Expense> getExpense(int expenseId) async {

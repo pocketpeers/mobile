@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/next_level_hint.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
@@ -188,7 +189,7 @@ class ScoreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final score = reputation?.score ?? fallbackScore;
     final level = reputation?.level ?? 'Nuevo';
-    final toNext = reputation?.pointsToNextLevel ?? 0;
+    final hint = reputation == null ? null : nextLevelHint(reputation!);
     final streak = reputation?.onTimePaymentStreak ?? 0;
 
     return Card(
@@ -261,16 +262,16 @@ class ScoreCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              toNext > 0
-                  ? 'Te faltan $toNext puntos para el siguiente nivel'
-                  : 'Alcanzaste el nivel más alto',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: context.mutedIconColor),
-            ),
+            if (hint != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                hint,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: context.mutedIconColor),
+              ),
+            ],
           ],
         ),
       ),

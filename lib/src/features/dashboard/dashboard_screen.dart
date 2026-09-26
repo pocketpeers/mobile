@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/reputation_event_text.dart';
 import '../../core/app_motion.dart';
 import '../../core/app_theme.dart';
 import '../../core/metric_card_extent.dart';
@@ -355,14 +356,21 @@ class _MetricGrid extends StatelessWidget {
 /// una linea sola afirmaria una precision que el motor no tiene, sobre todo al
 /// principio, cuando casi todo el valor viene del prior y no de lo que la
 /// persona hizo.
-class _ReputationHistoryCard extends StatelessWidget {
+class _ReputationHistoryCard extends ConsumerWidget {
   const _ReputationHistoryCard({required this.series, required this.events});
 
   final List<ScoreSeriesPoint> series;
   final List<ReputationEvent> events;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final days = ref.watch(scoreRangeDaysProvider);
+    // El evento solo trae el id del grupo; el nombre sale de la lista que ya
+    // esta cargada para el resto de la app.
+    final groupNames = {
+      for (final group in ref.watch(groupsProvider).valueOrNull ?? const [])
+        group.id: group.name,
+    };
     // El historial llega del mas antiguo al mas reciente. Lo ultimo que hizo la
     // persona esta al final, no al principio: leer los tres primeros mostraba
     // los tres eventos mas viejos de la ventana de noventa dias.
@@ -376,6 +384,23 @@ class _ReputationHistoryCard extends StatelessWidget {
           children: [
             Text('Evolucion del score',
                 style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            // Debajo del titulo y no a su lado: en un telefono de 360 px los
+            // dos juntos no entran sin partir el titulo en dos lineas.
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 30, label: Text('Ultimo mes')),
+                ButtonSegment(value: 90, label: Text('3 meses')),
+              ],
+              selected: {days},
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onSelectionChanged: (value) =>
+                  ref.read(scoreRangeDaysProvider.notifier).state = value.first,
+            ),
             if (series.length >= 2) ...[
               const SizedBox(height: 2),
               Text(
@@ -402,30 +427,12 @@ class _ReputationHistoryCard extends StatelessWidget {
             if (recent.isNotEmpty) ...[
               const SizedBox(height: 8),
               for (final event in recent)
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    _favorable(event.type)
-                        ? Icons.arrow_upward
-                        : Icons.arrow_downward,
-                    color: _favorable(event.type)
-                        ? context.successIconColor
-                        : Colors.redAccent,
-                  ),
-                  title: Text(event.description.isEmpty
-                      ? event.type
-                      : event.description),
-                  // La fecha, y no el `pointsDelta`. Ese numero es el del motor
-                  // anterior: mostrar un «+3» al lado de una linea que en ese
-                  // momento subio 4.7 invita a sumar puntos que no existen.
-                  trailing: Text(
-                    formatDate(event.occurredAt),
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: context.mutedIconColor),
-                  ),
+                // La fecha y el efecto, y no el `pointsDelta`. Ese numero es el
+                // del motor anterior: mostrar un «+3» al lado de una linea que
+                // en ese momento subio 4.7 invita a sumar puntos que no existen.
+                _ReputationEventTile(
+                  event: event,
+                  groupName: groupNames[event.groupId],
                 ),
             ],
           ],
@@ -434,11 +441,94 @@ class _ReputationHistoryCard extends StatelessWidget {
     );
   }
 
-  /// Si el evento es de los que empujan el score hacia arriba.
-  ///
-  /// Un pago tardio cuenta como favorable aunque valga poco: cumplir tarde sigue
-  /// siendo cumplir, y la flecha describe la direccion, no la magnitud.
-  static bool _favorable(String type) => type != 'OVERDUE_PAYMENT';
+}
+
+/// Un evento del historial: que paso, donde y que le hizo al score.
+class _ReputationEventTile extends StatelessWidget {
+  const _ReputationEventTile({required this.event, this.groupName});
+
+  final ReputationEvent event;
+  final String? groupName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = describeReputationEvent(event);
+    final (icon, color, container) = switch (text.effect) {
+      ScoreEffect.up => (
+          Icons.trending_up,
+          context.successIconColor,
+          context.successIconContainerColor,
+        ),
+      ScoreEffect.down => (
+          Icons.trending_down,
+          context.dangerIconColor,
+          context.dangerIconContainerColor,
+        ),
+      ScoreEffect.partial => (
+          Icons.trending_flat,
+          context.warningIconColor,
+          context.warningIconContainerColor,
+        ),
+      // Sin flecha: una flecha, aunque sea gris, se lee como que algo se movio.
+      ScoreEffect.none => (
+          Icons.emoji_events_outlined,
+          context.mutedIconColor,
+          context.mutedIconContainerColor,
+        ),
+    };
+    final place = [
+      if (groupName != null && groupName!.trim().isNotEmpty) groupName!.trim(),
+      formatDate(event.occurredAt),
+    ].join(' · ');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: container, shape: BoxShape.circle),
+            child: Icon(icon, size: 20, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  text.title,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text.effectLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    // El gris del "no cambia" es el mismo del lugar y la fecha:
+                    // solo se colorea lo que de verdad movio el score.
+                    color: text.effect == ScoreEffect.none
+                        ? context.mutedIconColor
+                        : color,
+                    fontWeight: text.effect == ScoreEffect.none
+                        ? null
+                        : FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  place,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: context.mutedIconColor),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ScoreSeriesChart extends StatelessWidget {
@@ -757,63 +847,119 @@ class MetricCard extends StatelessWidget {
   final String value;
   final IconData? icon;
 
+  static const _iconSize = 32.0;
+  static const _stackedIconSize = 24.0;
+  static const _iconGap = 8.0;
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                if (icon != null)
-                  SizedBox(
-                    width: 32,
-                    height: 32,
-                    child: FittedBox(
-                      child: PulseIcon(
-                        icon: icon!,
-                        color: context.successIconColor,
-                      ),
-                    ),
-                  ),
-                if (icon != null) const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    label,
-                    // Tope de dos lineas: sin el, una etiqueta larga en una
-                    // pantalla estrecha se parte en tres y la tarjeta desborda.
-                    // Con el, en el peor caso se recorta con puntos suspensivos,
-                    // que se ve mal pero no rompe la pantalla.
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.66)
-                              : AppColors.navy.withOpacity(0.66),
-                        ),
-                  ),
-                ),
-              ],
+    final labelStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: isDark
+              ? Colors.white.withOpacity(0.66)
+              : AppColors.navy.withOpacity(0.66),
+        );
+    final valueText = FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        value,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: isDark ? Colors.white : AppColors.navy,
+              fontWeight: FontWeight.w900,
             ),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: isDark ? Colors.white : AppColors.navy,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
+
+    return Card(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // En tres columnas sobre un telefono la tarjeta mide unos 100 px, y
+          // con el icono al lado a la etiqueta le quedaban menos de 30: Flutter
+          // partia la palabra por la mitad («Gasto/s», «Pendi/ente»). Si alguna
+          // palabra de la etiqueta no entra junto al icono, el icono sube y la
+          // etiqueta va debajo, en una sola linea. Si todas entran, se queda al
+          // lado y puede partirse en dos lineas por los espacios.
+          final stacked = icon != null &&
+              _longestWordWidth(context, labelStyle) >
+                  constraints.maxWidth - 32 - _iconSize - _iconGap;
+          return Padding(
+            // Apilado se come un poco del relleno vertical para que el icono
+            // quepa en el mismo alto que metricCardExtent reserva para dos
+            // lineas de etiqueta.
+            padding: stacked
+                ? const EdgeInsets.fromLTRB(12, 12, 12, 12)
+                : const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: stacked
+                  ? [
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _icon(context, _stackedIconSize),
+                          const SizedBox(height: 6),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(label, maxLines: 1, style: labelStyle),
+                          ),
+                        ],
+                      ),
+                      valueText,
+                    ]
+                  : [
+                      Row(
+                        children: [
+                          if (icon != null) _icon(context, _iconSize),
+                          if (icon != null) const SizedBox(width: _iconGap),
+                          Expanded(
+                            child: Text(
+                              label,
+                              // Tope de dos lineas: sin el, una etiqueta larga
+                              // sin icono se parte en tres y la tarjeta desborda.
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: labelStyle,
+                            ),
+                          ),
+                        ],
+                      ),
+                      valueText,
+                    ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _icon(BuildContext context, double size) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: FittedBox(
+        child: PulseIcon(icon: icon!, color: context.successIconColor),
+      ),
+    );
+  }
+
+  /// Ancho de la palabra mas larga de la etiqueta, con el tamaño de letra activo.
+  double _longestWordWidth(BuildContext context, TextStyle? style) {
+    var widest = 0.0;
+    for (final word in label.split(' ')) {
+      final painter = TextPainter(
+        text: TextSpan(text: word, style: style),
+        maxLines: 1,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      if (painter.width > widest) widest = painter.width;
+      painter.dispose();
+    }
+    return widest;
   }
 }
 

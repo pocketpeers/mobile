@@ -169,6 +169,20 @@ final groupsProvider = FutureProvider<List<Group>>((ref) async {
   return ref.read(apiProvider).getGroupsByUserId(session.id);
 });
 
+/// Invitaciones que esperan respuesta de la persona de la sesion.
+final myInvitationsProvider =
+    FutureProvider<List<GroupInvitation>>((ref) async {
+  final session = ref.watch(authControllerProvider).valueOrNull;
+  if (session == null) return const [];
+  return ref.read(apiProvider).getMyInvitations();
+});
+
+/// Invitaciones enviadas y sin responder de un grupo (solo el administrador).
+final groupInvitationsProvider =
+    FutureProvider.autoDispose.family<List<GroupInvitation>, int>((ref, groupId) {
+  return ref.read(apiProvider).getGroupInvitations(groupId);
+});
+
 final groupProvider = FutureProvider.family<Group, int>((ref, groupId) {
   return ref.read(apiProvider).getGroup(groupId);
 });
@@ -181,6 +195,23 @@ final groupMembersProvider =
 final groupExpensesProvider =
     FutureProvider.family<List<Expense>, int>((ref, groupId) {
   return ref.read(apiProvider).getExpensesByGroup(groupId);
+});
+
+/// Los gastos activos de todos los grupos de la persona de la sesion.
+///
+/// Sale de [groupExpensesProvider] de cada grupo, y no de
+/// `/api/v1/expenses/search`: ese endpoint busca en toda la base, y desde
+/// Reportes dejaba ver nombres y montos de gastos de grupos ajenos.
+final myExpensesProvider = FutureProvider<List<Expense>>((ref) async {
+  final groups = await ref.watch(groupsProvider.future);
+  final lists = await Future.wait([
+    for (final group in groups) ref.watch(groupExpensesProvider(group.id).future),
+  ]);
+  return [
+    for (final list in lists)
+      for (final expense in list)
+        if (expense.isActive) expense,
+  ];
 });
 
 final expenseProvider = FutureProvider.family<Expense, int>((ref, expenseId) {
@@ -260,18 +291,29 @@ final myBadgesProvider = FutureProvider<List<PblBadge>>((ref) async {
   return ref.read(apiProvider).getBadges(session.id);
 });
 
+/// Dias que abarca la evolucion del score en el panel.
+///
+/// Un mes por defecto: con noventa dias, quien empieza veia una linea plana
+/// casi entera y su actividad amontonada en el borde derecho.
+final scoreRangeDaysProvider = StateProvider<int>((ref) => 30);
+
 final myReputationHistoryProvider =
     FutureProvider<List<ReputationEvent>>((ref) async {
   final session = ref.watch(authControllerProvider).valueOrNull;
   if (session == null) return const [];
-  return ref.read(apiProvider).getReputationHistory(session.id);
+  final days = ref.watch(scoreRangeDaysProvider);
+  return ref.read(apiProvider).getReputationHistory(session.id, days: days);
 });
 
 final myScoreSeriesProvider =
     FutureProvider<List<ScoreSeriesPoint>>((ref) async {
   final session = ref.watch(authControllerProvider).valueOrNull;
   if (session == null) return const [];
-  return ref.read(apiProvider).getScoreSeries(session.id);
+  final days = ref.watch(scoreRangeDaysProvider);
+  // Un corte cada tres dias en el mes, uno por semana en tres meses.
+  return ref
+      .read(apiProvider)
+      .getScoreSeries(session.id, days: days, points: days <= 30 ? 10 : 13);
 });
 
 final groupLeaderboardProvider =
@@ -346,6 +388,8 @@ void invalidateGroup(WidgetRef ref, int groupId) {
   ref.invalidate(groupSummaryProvider(groupId));
   ref.invalidate(groupLeaderboardProvider(groupId));
   ref.invalidate(overdueMembersProvider(groupId));
+  // Solo tiene efecto si alguien la esta mirando, que es el administrador.
+  ref.invalidate(groupInvitationsProvider(groupId));
   ref.invalidate(dashboardSummaryProvider);
   ref.invalidate(myReputationProvider);
   ref.invalidate(myBadgesProvider);

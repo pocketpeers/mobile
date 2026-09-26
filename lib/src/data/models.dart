@@ -609,15 +609,26 @@ class Reputation {
     required this.pointsToNextLevel,
     required this.onTimePaymentStreak,
     required this.completedPayments,
+    this.nextLevel,
+    this.peerScoreActive = false,
   });
 
   final int userId;
   final int score;
   final String level;
   final String levelDescription;
+
+  /// Solo los puntos que faltan. No alcanza para saber si falta algo: el nivel
+  /// tambien exige cumplir con varias personas, y con el puntaje ya cubierto
+  /// esto vale 0 aunque el siguiente nivel siga lejos. Ver [nextLevel].
   final int pointsToNextLevel;
   final int onTimePaymentStreak;
   final int completedPayments;
+
+  /// Todo lo que falta para el siguiente nivel. Null en el nivel maximo, o si
+  /// el backend usa el motor anterior ([peerScoreActive] en falso).
+  final NextLevelGoal? nextLevel;
+  final bool peerScoreActive;
 
   factory Reputation.fromJson(Map<String, Object?> json) => Reputation(
         userId: _toInt(json['userId']),
@@ -627,6 +638,38 @@ class Reputation {
         pointsToNextLevel: _toInt(json['pointsToNextLevel']),
         onTimePaymentStreak: _toInt(json['onTimePaymentStreak']),
         completedPayments: _toInt(json['completedPayments']),
+        nextLevel: json['nextLevel'] is Map
+            ? NextLevelGoal.fromJson(
+                Map<String, Object?>.from(json['nextLevel'] as Map))
+            : null,
+        peerScoreActive: json['peerScoreActive'] == true,
+      );
+}
+
+/// Que le falta a alguien para el siguiente nivel, segun el motor PeerScore.
+class NextLevelGoal {
+  const NextLevelGoal({
+    required this.levelName,
+    required this.missingScore,
+    required this.missingCounterparties,
+    required this.bandTooWide,
+  });
+
+  final String levelName;
+  final double missingScore;
+
+  /// Contrapartes efectivas que faltan: con cuantas personas distintas hay
+  /// que cumplir, pesando cuanto se le pago a cada una.
+  final double missingCounterparties;
+
+  /// El sistema todavia no tiene historial suficiente para estar seguro.
+  final bool bandTooWide;
+
+  factory NextLevelGoal.fromJson(Map<String, Object?> json) => NextLevelGoal(
+        levelName: json['levelName']?.toString() ?? '',
+        missingScore: _toDouble(json['missingScore']),
+        missingCounterparties: _toDouble(json['missingCounterparties']),
+        bandTooWide: json['bandTooWide'] == true,
       );
 }
 
@@ -779,6 +822,7 @@ class PublicMemberProfile {
   const PublicMemberProfile({
     required this.userId,
     required this.fullName,
+    this.username = '',
     required this.photo,
     required this.reputation,
     required this.badges,
@@ -787,6 +831,9 @@ class PublicMemberProfile {
 
   final int userId;
   final String fullName;
+
+  /// Vacio si el backend todavia no lo manda.
+  final String username;
   final String photo;
   final Reputation reputation;
   final List<PblBadge> badges;
@@ -796,6 +843,7 @@ class PublicMemberProfile {
       PublicMemberProfile(
         userId: _toInt(json['userId']),
         fullName: json['fullName']?.toString() ?? '',
+        username: json['username']?.toString() ?? '',
         photo: json['photo']?.toString() ?? '',
         reputation: Reputation.fromJson(
           Map<String, Object?>.from((json['reputation'] as Map?) ?? const {}),
@@ -902,4 +950,95 @@ class UpcomingPayment {
   }
 
   bool isOverdue(DateTime now) => daysLeft(now) < 0;
+}
+
+/// Invitacion a un grupo por nombre de usuario, pendiente de respuesta.
+class GroupInvitation {
+  const GroupInvitation({
+    required this.id,
+    required this.groupId,
+    required this.groupName,
+    required this.groupPhoto,
+    required this.invitedUserId,
+    required this.invitedUsername,
+    required this.invitedFullName,
+    required this.invitedPhoto,
+    required this.invitedByUsername,
+    required this.invitedByFullName,
+    required this.expiresAt,
+  });
+
+  final int id;
+  final int groupId;
+  final String groupName;
+  final String groupPhoto;
+  final int invitedUserId;
+  final String invitedUsername;
+  final String invitedFullName;
+  final String invitedPhoto;
+  final String invitedByUsername;
+  final String invitedByFullName;
+  final DateTime? expiresAt;
+
+  /// Quien invito, como se le muestra a la persona invitada.
+  String get invitedByLabel => invitedByFullName.trim().isNotEmpty
+      ? invitedByFullName.trim()
+      : '@$invitedByUsername';
+
+  factory GroupInvitation.fromJson(Map<String, Object?> json) =>
+      GroupInvitation(
+        id: _toInt(json['id']),
+        groupId: _toInt(json['groupId']),
+        groupName: json['groupName']?.toString() ?? '',
+        groupPhoto: json['groupPhoto']?.toString() ?? '',
+        invitedUserId: _toInt(json['invitedUserId']),
+        invitedUsername: json['invitedUsername']?.toString() ?? '',
+        invitedFullName: json['invitedFullName']?.toString() ?? '',
+        invitedPhoto: json['invitedPhoto']?.toString() ?? '',
+        invitedByUsername: json['invitedByUsername']?.toString() ?? '',
+        invitedByFullName: json['invitedByFullName']?.toString() ?? '',
+        expiresAt: _toDate(json['expiresAt']),
+      );
+}
+
+/// Si a quien se busco se le puede invitar, y si no, por que.
+enum InvitationAvailability {
+  available,
+  alreadyMember,
+  alreadyInvited,
+  recentlyRejected;
+
+  static InvitationAvailability parse(Object? value) =>
+      switch (value?.toString()) {
+        'ALREADY_MEMBER' => alreadyMember,
+        'ALREADY_INVITED' => alreadyInvited,
+        'RECENTLY_REJECTED' => recentlyRejected,
+        _ => available,
+      };
+}
+
+/// La persona que el administrador esta por invitar, para confirmar quien es.
+class InvitationCandidate {
+  const InvitationCandidate({
+    required this.userId,
+    required this.username,
+    required this.fullName,
+    required this.photo,
+    required this.availability,
+  });
+
+  final int userId;
+  final String username;
+  final String fullName;
+  final String photo;
+  final InvitationAvailability availability;
+
+  factory InvitationCandidate.fromJson(Map<String, Object?> json) =>
+      InvitationCandidate(
+        userId: _toInt(json['userId']),
+        username: json['username']?.toString() ?? '',
+        fullName: json['fullName']?.toString() ?? '',
+        photo: json['photo']?.toString() ?? '',
+        availability: InvitationAvailability.parse(json['availability']),
+      );
 }

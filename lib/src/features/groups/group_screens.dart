@@ -22,8 +22,10 @@ import '../../data/models.dart';
 import '../../state/providers.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../expenses/expense_screens.dart';
+import 'invite_member_dialog.dart';
 import 'join_group_dialog.dart';
 import 'membership_declaration_screen.dart';
+import 'pending_invitations.dart';
 import 'signed_declarations_screens.dart';
 
 const _groupDescriptionMaxLength = 100;
@@ -37,8 +39,20 @@ class GroupsScreen extends ConsumerStatefulWidget {
 
 class _GroupsScreenState extends ConsumerState<GroupsScreen> {
   final _search = TextEditingController();
-  List<Group>? _results;
-  var _searching = false;
+
+  /// Lo escrito en el buscador, en minusculas. Filtra la lista mientras se
+  /// escribe, como en la pantalla de gastos.
+  var _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Las invitaciones pueden llegar mientras la app esta abierta y el push no
+    // siempre llega: al volver a esta pestana se piden de nuevo.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.invalidate(myInvitationsProvider);
+    });
+  }
 
   @override
   void dispose() {
@@ -80,62 +94,68 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
           onRetry: () => ref.invalidate(groupsProvider),
         ),
         data: (items) {
+          // Sin grupos igual se arma la lista: justo quien recien se registra
+          // es quien mas probablemente tiene una invitacion esperando.
+          final hasInvitations =
+              ref.watch(myInvitationsProvider).valueOrNull?.isNotEmpty ?? false;
           if (items.isEmpty) {
-            return const Center(
-                child: Text('Crea tu primer grupo para empezar'));
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const PendingInvitationsSection(),
+                  SizedBox(
+                    height: hasInvitations ? 120 : 360,
+                    child: const Center(
+                      child: Text('Crea tu primer grupo para empezar'),
+                    ),
+                  ),
+                ],
+              ),
+            );
           }
-          final visibleItems = _results ?? items;
+          // Sobre los grupos propios, ya cargados. Antes se preguntaba a
+          // /api/v1/groups/search, que busca en todos los grupos de la base:
+          // aparecian grupos ajenos que la persona no podia abrir.
+          final visibleItems = _query.isEmpty
+              ? items
+              : items
+                  .where((group) =>
+                      group.name.toLowerCase().contains(_query) ||
+                      group.description.toLowerCase().contains(_query))
+                  .toList();
           return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(groupsProvider),
+            onRefresh: _refresh,
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _search,
-                        decoration: const InputDecoration(
-                          labelText: 'Buscar grupo',
-                          prefixIcon: Icon(Icons.search),
-                        ),
-                        onSubmitted: (_) => _runSearch(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      onPressed: _searching ? null : _runSearch,
-                      style: IconButton.styleFrom(
-                        backgroundColor: context.successIconColor,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor:
-                            context.successIconColor.withOpacity(0.42),
-                        disabledForegroundColor: Colors.white70,
-                      ),
-                      icon: _searching
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.search),
-                    ),
-                    if (_results != null)
-                      IconButton(
-                        onPressed: () => setState(() {
-                          _results = null;
-                          _search.clear();
-                        }),
-                        icon: const Icon(Icons.close),
-                      ),
-                  ],
+                if (_query.isEmpty) const PendingInvitationsSection(),
+                TextField(
+                  controller: _search,
+                  onChanged: (value) =>
+                      setState(() => _query = value.trim().toLowerCase()),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar grupo',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Limpiar',
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              _search.clear();
+                              setState(() => _query = '');
+                            },
+                          ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 if (visibleItems.isEmpty)
-                  const Card(
-                    child: ListTile(title: Text('No se encontraron grupos')),
+                  Card(
+                    child: ListTile(
+                      title: Text('Ningun grupo coincide con «${_search.text.trim()}»'),
+                    ),
                   )
                 else
                   for (var i = 0; i < visibleItems.length; i++) ...[
@@ -156,7 +176,9 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                             visibleItems[i].name,
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
-                          subtitle: Text(visibleItems[i].description),
+                          subtitle: visibleItems[i].description.trim().isEmpty
+                              ? null
+                              : Text(visibleItems[i].description),
                           trailing: Icon(
                             Icons.chevron_right,
                             color: context.successIconColor,
@@ -176,19 +198,9 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
     );
   }
 
-  Future<void> _runSearch() async {
-    final query = _search.text.trim();
-    if (query.isEmpty) {
-      setState(() => _results = null);
-      return;
-    }
-    setState(() => _searching = true);
-    try {
-      final result = await ref.read(apiProvider).searchGroups(query);
-      if (mounted) setState(() => _results = result);
-    } finally {
-      if (mounted) setState(() => _searching = false);
-    }
+  Future<void> _refresh() async {
+    ref.invalidate(groupsProvider);
+    ref.invalidate(myInvitationsProvider);
   }
 }
 
@@ -284,10 +296,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 
   String? _groupDescription(String? value) {
-    final required = requiredField(value);
-    if (required != null) return required;
-    final description = value!.trim();
-    if (description.length < 5) return 'Ingresa al menos 5 caracteres';
+    // Opcional: el backend acepta la descripcion vacia.
+    final description = (value ?? '').trim();
     if (description.length > _groupDescriptionMaxLength) {
       return 'Ingresa maximo $_groupDescriptionMaxLength caracteres';
     }
@@ -295,7 +305,11 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 
   Future<void> _pickGroupPhoto() async {
-    final image = await pickImageFromCameraOrGallery(context, cropToSquare: true);
+    final image = await pickImageFromCameraOrGallery(
+      context,
+      cropToSquare: true,
+      title: 'Foto del grupo',
+    );
     if (image == null) return;
     // Solo se guarda la referencia local: la subida espera a _save.
     setState(() => _pendingPhoto = image);
@@ -428,9 +442,17 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
             ),
           if (isAdmin)
             IconButton(
-              tooltip: 'Invitacion',
-              onPressed: () => _showInvitation(context, ref),
-              icon: const Icon(Icons.ios_share_outlined),
+              // Antes era el icono de compartir, que no decia que aqui se
+              // agregan integrantes.
+              tooltip: 'Agregar integrante',
+              onPressed: () => showAppDialog<void>(
+                context: context,
+                builder: (context) => InviteMemberDialog(
+                  groupId: widget.groupId,
+                  groupName: group.valueOrNull?.name,
+                ),
+              ),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
             ),
         ],
       ),
@@ -502,6 +524,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                 error: (error, stackTrace) =>
                     Text('No se pudieron cargar integrantes'),
                 data: (items) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     for (final member in items)
                       ListTile(
@@ -519,6 +542,15 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                           '/groups/${widget.groupId}/members/${member.userId}',
                         ),
                       ),
+                    // Quien todavia no respondio, junto a quienes ya estan:
+                    // es lo que el administrador mira para saber quien falta.
+                    if (isAdmin) ...[
+                      const Divider(height: 16),
+                      PendingInvitationsEntry(
+                        groupId: widget.groupId,
+                        groupName: group.valueOrNull?.name,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -595,38 +627,6 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
             const SizedBox(height: 72),
           ],
         ),
-      ),
-    );
-  }
-
-  Future<void> _showInvitation(BuildContext context, WidgetRef ref) async {
-    final token =
-        await ref.read(apiProvider).generateInvitation(widget.groupId);
-    if (!context.mounted) return;
-    await showAppDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Codigo de invitacion'),
-        content:
-            SelectableText(token.isEmpty ? 'Sin codigo disponible' : token),
-        actions: [
-          TextButton.icon(
-            onPressed: token.isEmpty
-                ? null
-                : () async {
-                    await Clipboard.setData(ClipboardData(text: token));
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Codigo copiado')),
-                      );
-                    }
-                  },
-            icon: const Icon(Icons.copy_outlined),
-            label: const Text('Copiar'),
-          ),
-          TextButton(
-              onPressed: () => context.pop(), child: const Text('Cerrar')),
-        ],
       ),
     );
   }
@@ -822,10 +822,8 @@ class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
   }
 
   String? _groupDescription(String? value) {
-    final required = requiredField(value);
-    if (required != null) return required;
-    final description = value!.trim();
-    if (description.length < 5) return 'Ingresa al menos 5 caracteres';
+    // Opcional: el backend acepta la descripcion vacia.
+    final description = (value ?? '').trim();
     if (description.length > _groupDescriptionMaxLength) {
       return 'Ingresa maximo $_groupDescriptionMaxLength caracteres';
     }
@@ -833,7 +831,11 @@ class _EditGroupDialogState extends ConsumerState<_EditGroupDialog> {
   }
 
   Future<void> _pickGroupPhoto() async {
-    final image = await pickImageFromCameraOrGallery(context, cropToSquare: true);
+    final image = await pickImageFromCameraOrGallery(
+      context,
+      cropToSquare: true,
+      title: 'Foto del grupo',
+    );
     if (image == null) return;
     // Solo se guarda la referencia local: la subida espera a _save. Ya no
     // hace falta bloquear el formulario, porque elegir dejo de ser una
@@ -1258,11 +1260,17 @@ class _PublicProfileHeader extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  profile.reputation.level,
-                  style: TextStyle(color: Colors.white.withOpacity(0.82)),
-                ),
+                // El usuario y no el nivel: el nivel ya sale en el resumen de
+                // abajo, y repetido aqui no decia nada nuevo.
+                if (profile.username.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '@${profile.username.trim()}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.white.withOpacity(0.82)),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TweenAnimationBuilder<double>(
                   tween: Tween(begin: 0, end: progress),
