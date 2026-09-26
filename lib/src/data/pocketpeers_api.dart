@@ -42,7 +42,13 @@ class PocketPeersApi {
                 baseUrl: AppConfig.apiBaseUrl,
                 connectTimeout: const Duration(seconds: 15),
                 receiveTimeout: const Duration(seconds: 20),
-                headers: {'Accept': 'application/json'},
+                headers: {
+                  'Accept': 'application/json',
+                  // El backend rechaza, con un aviso de actualizar, las
+                  // versiones que ya no son compatibles. Subirlo junto con
+                  // OutdatedClientException.MIN_SUPPORTED_APP_VERSION.
+                  'X-App-Version': '2',
+                },
               ),
             ) {
     _dio.interceptors.add(
