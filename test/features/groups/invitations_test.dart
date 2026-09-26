@@ -126,6 +126,32 @@ Future<void> _pump(WidgetTester tester, _FakeApi api, Widget child,
 
 void main() {
   group('Invitar por usuario', () {
+    testWidgets('Buscar va junto a Cerrar y se activa al escribir',
+        (tester) async {
+      final api = _FakeApi()..candidates['mialaos'] = _mia;
+      await _pump(tester, api, const InviteMemberDialog(groupId: 10));
+
+      ButtonStyleButton searchButton() => tester.widget<ButtonStyleButton>(
+          find.ancestor(
+              of: find.text('Buscar'),
+              matching: find.bySubtype<ButtonStyleButton>()));
+      expect(searchButton().onPressed, isNull);
+      // Ya no hay una lupa dentro del campo que haga lo mismo.
+      expect(find.byTooltip('Buscar'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 'mialaos');
+      await tester.pump();
+      expect(searchButton().onPressed, isNotNull);
+
+      await tester.tap(find.text('Buscar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mia Laos'), findsOneWidget);
+
+      // En la misma fila que «Cerrar», no apilado debajo.
+      expect(tester.getCenter(find.text('Buscar')).dy,
+          tester.getCenter(find.text('Cerrar')).dy);
+    });
+
     testWidgets('muestra a quien se encontro y le manda la invitacion',
         (tester) async {
       final api = _FakeApi()..candidates['mialaos'] = _mia;
@@ -155,7 +181,8 @@ void main() {
       await _pump(tester, api, const InviteMemberDialog(groupId: 10));
 
       await tester.enterText(find.byType(TextField), 'nadie');
-      await tester.tap(find.byTooltip('Buscar'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Buscar'));
       await tester.pumpAndSettle();
 
       expect(
@@ -177,7 +204,8 @@ void main() {
       await _pump(tester, api, const InviteMemberDialog(groupId: 10));
 
       await tester.enterText(find.byType(TextField), 'mialaos');
-      await tester.tap(find.byTooltip('Buscar'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Buscar'));
       await tester.pumpAndSettle();
 
       expect(find.text('Ya es integrante del grupo.'), findsOneWidget);
@@ -194,7 +222,8 @@ void main() {
       await _pump(tester, api, const InviteMemberDialog(groupId: 10));
 
       await tester.enterText(find.byType(TextField), 'mialaos');
-      await tester.tap(find.byTooltip('Buscar'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Buscar'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'mialao');
       await tester.pumpAndSettle();
@@ -208,11 +237,14 @@ void main() {
       final api = _FakeApi();
       await _pump(tester, api, const InviteMemberDialog(groupId: 10));
       expect(api.generatedCodes, 0);
+      // «Buscar» es solo de la pestana por usuario.
+      expect(find.widgetWithText(FilledButton, 'Buscar'), findsOneWidget);
 
       await tester.tap(find.text('Con codigo'));
       await tester.pumpAndSettle();
 
       expect(api.generatedCodes, 1);
+      expect(find.widgetWithText(FilledButton, 'Buscar'), findsNothing);
       expect(find.text('codigo-del-grupo'), findsOneWidget);
     });
   });

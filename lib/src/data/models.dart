@@ -725,6 +725,8 @@ class ReputationEvent {
     required this.resultingScore,
     required this.description,
     this.occurredAt,
+    this.countsForScore,
+    this.ownExpense = false,
   });
 
   final int id;
@@ -737,6 +739,14 @@ class ReputationEvent {
   final String description;
   final DateTime? occurredAt;
 
+  /// Si el evento entro en el calculo del score, segun el propio motor.
+  /// Null si el backend es anterior a este dato: entonces se decide por el
+  /// tipo.
+  final bool? countsForScore;
+
+  /// Pago de la cuota propia de un gasto que la persona creo.
+  final bool ownExpense;
+
   factory ReputationEvent.fromJson(Map<String, Object?> json) =>
       ReputationEvent(
         id: _toInt(json['id']),
@@ -748,6 +758,10 @@ class ReputationEvent {
         resultingScore: _toInt(json['resultingScore']),
         description: json['description']?.toString() ?? '',
         occurredAt: _toDate(json['occurredAt']),
+        countsForScore: json['countsForScore'] is bool
+            ? json['countsForScore'] as bool
+            : null,
+        ownExpense: json['ownExpense'] == true,
       );
 }
 

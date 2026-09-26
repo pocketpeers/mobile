@@ -2,7 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pocketpeers/src/core/reputation_event_text.dart';
 import 'package:pocketpeers/src/data/models.dart';
 
-ReputationEvent _event(String type) => ReputationEvent(
+ReputationEvent _event(String type,
+        {bool? countsForScore, bool ownExpense = false}) =>
+    ReputationEvent(
       id: 1,
       userId: 1,
       groupId: 10,
@@ -11,6 +13,8 @@ ReputationEvent _event(String type) => ReputationEvent(
       pointsDelta: 3,
       resultingScore: 0,
       description: 'Texto en ingles del backend',
+      countsForScore: countsForScore,
+      ownExpense: ownExpense,
     );
 
 void main() {
@@ -40,6 +44,39 @@ void main() {
       expect(text.effect, ScoreEffect.none, reason: type);
       expect(text.effectLabel, 'No cambia tu score · cuenta para insignias');
     }
+  });
+
+  test('la cuota propia del creador no aparece como que sube', () {
+    final text = describeReputationEvent(_event(
+      'ON_TIME_PAYMENT',
+      countsForScore: false,
+      ownExpense: true,
+    ));
+    expect(text.effect, ScoreEffect.none);
+    expect(text.title, 'Pagaste tu parte de un gasto que creaste');
+    expect(text.effectLabel, 'No cambia tu score: es tu propio gasto');
+  });
+
+  test('si el motor no lo conto, no se muestra como que conto', () {
+    final text =
+        describeReputationEvent(_event('LATE_PAYMENT', countsForScore: false));
+    expect(text.effect, ScoreEffect.none);
+    expect(text.title, 'Pagaste despues del plazo');
+    expect(text.effectLabel, 'No cuenta para tu score');
+  });
+
+  test('lee los datos nuevos del backend', () {
+    final event = ReputationEvent.fromJson({
+      'type': 'ON_TIME_PAYMENT',
+      'countsForScore': false,
+      'ownExpense': true,
+    });
+    expect(event.countsForScore, isFalse);
+    expect(event.ownExpense, isTrue);
+    // Un backend anterior no los manda: se decide por el tipo, como antes.
+    final old = ReputationEvent.fromJson({'type': 'ON_TIME_PAYMENT'});
+    expect(old.countsForScore, isNull);
+    expect(describeReputationEvent(old).effect, ScoreEffect.up);
   });
 
   test('nunca muestra el texto en ingles del backend', () {

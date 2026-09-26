@@ -33,6 +33,19 @@ class InviteMemberDialog extends ConsumerStatefulWidget {
 class _InviteMemberDialogState extends ConsumerState<InviteMemberDialog> {
   var _mode = _InviteMode.username;
 
+  // Viven aqui y no en la pestana para que el boton «Buscar» de abajo, junto a
+  // «Cerrar», sepa si hay algo que buscar y si ya se esta buscando.
+  final _username = TextEditingController();
+  final _searching = ValueNotifier<bool>(false);
+  final _byUsername = GlobalKey<_InviteByUsernameState>();
+
+  @override
+  void dispose() {
+    _username.dispose();
+    _searching.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -80,7 +93,12 @@ class _InviteMemberDialogState extends ConsumerState<InviteMemberDialog> {
                 offstage: _mode != _InviteMode.username,
                 child: TickerMode(
                   enabled: _mode == _InviteMode.username,
-                  child: _InviteByUsername(groupId: widget.groupId),
+                  child: _InviteByUsername(
+                    key: _byUsername,
+                    groupId: widget.groupId,
+                    username: _username,
+                    searching: _searching,
+                  ),
                 ),
               ),
               Offstage(
@@ -103,6 +121,29 @@ class _InviteMemberDialogState extends ConsumerState<InviteMemberDialog> {
           onPressed: () => context.pop(),
           child: const Text('Cerrar'),
         ),
+        if (_mode == _InviteMode.username)
+          ListenableBuilder(
+            listenable: Listenable.merge([_username, _searching]),
+            builder: (context, _) {
+              final busy = _searching.value;
+              final canSearch = _username.text.trim().isNotEmpty && !busy;
+              return FilledButton.icon(
+                // Ancho segun el texto: el tema pide ancho infinito, y en la
+                // fila de acciones eso apilaria los dos botones.
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+                onPressed: canSearch
+                    ? () => _byUsername.currentState?.search()
+                    : null,
+                icon: busy
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.search),
+                label: const Text('Buscar'),
+              );
+            },
+          ),
       ],
     );
   }
@@ -113,16 +154,25 @@ class _InviteMemberDialogState extends ConsumerState<InviteMemberDialog> {
 // ---------------------------------------------------------------------------
 
 class _InviteByUsername extends ConsumerStatefulWidget {
-  const _InviteByUsername({required this.groupId});
+  const _InviteByUsername({
+    required this.groupId,
+    required this.username,
+    required this.searching,
+    super.key,
+  });
 
   final int groupId;
+  final TextEditingController username;
+
+  /// Se prende mientras se busca, para el boton de abajo.
+  final ValueNotifier<bool> searching;
 
   @override
   ConsumerState<_InviteByUsername> createState() => _InviteByUsernameState();
 }
 
 class _InviteByUsernameState extends ConsumerState<_InviteByUsername> {
-  final _username = TextEditingController();
+  TextEditingController get _username => widget.username;
   InvitationCandidate? _candidate;
   var _searching = false;
   var _sending = false;
@@ -131,12 +181,6 @@ class _InviteByUsernameState extends ConsumerState<_InviteByUsername> {
 
   /// Nombre de la ultima persona invitada, para confirmarlo en pantalla.
   String? _sentTo;
-
-  @override
-  void dispose() {
-    _username.dispose();
-    super.dispose();
-  }
 
   String get _query {
     final text = _username.text.trim();
@@ -172,16 +216,6 @@ class _InviteByUsernameState extends ConsumerState<_InviteByUsername> {
           decoration: InputDecoration(
             labelText: 'Nombre de usuario',
             prefixText: '@',
-            suffixIcon: IconButton(
-              tooltip: 'Buscar',
-              onPressed: _searching ? null : _search,
-              icon: _searching
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.search),
-            ),
           ),
           // Cambiar el texto invalida lo encontrado: si no, se podria mandar
           // la invitacion a la persona de la busqueda anterior.
@@ -194,7 +228,7 @@ class _InviteByUsernameState extends ConsumerState<_InviteByUsername> {
               });
             }
           },
-          onSubmitted: (_) => _search(),
+          onSubmitted: (_) => search(),
         ),
         if (_sentTo != null && candidate == null && !_notFound) ...[
           const SizedBox(height: 12),
@@ -247,10 +281,12 @@ class _InviteByUsernameState extends ConsumerState<_InviteByUsername> {
     );
   }
 
-  Future<void> _search() async {
+  /// La llama el boton «Buscar» del dialogo y la tecla de buscar del teclado.
+  Future<void> search() async {
     final query = _query;
-    if (query.isEmpty) return;
+    if (query.isEmpty || _searching) return;
     FocusScope.of(context).unfocus();
+    widget.searching.value = true;
     setState(() {
       _searching = true;
       _candidate = null;
@@ -276,7 +312,10 @@ class _InviteByUsernameState extends ConsumerState<_InviteByUsername> {
             ));
       }
     } finally {
-      if (mounted) setState(() => _searching = false);
+      if (mounted) {
+        setState(() => _searching = false);
+        widget.searching.value = false;
+      }
     }
   }
 

@@ -37,6 +37,24 @@ class ReputationEventText {
 /// desbloquean insignias, y PeerScore no los cuenta (ver
 /// `PaymentOutcome.fromEventType` en el backend).
 ReputationEventText describeReputationEvent(ReputationEvent event) {
+  // La cuota propia del creador se registra como un «pago a tiempo» mas, pero
+  // el motor la descarta: nadie mas atestigua que se haya pagado a si mismo.
+  if (event.ownExpense) {
+    return const ReputationEventText(
+      title: 'Pagaste tu parte de un gasto que creaste',
+      effect: ScoreEffect.none,
+      effectLabel: 'No cambia tu score: es tu propio gasto',
+    );
+  }
+  // Un desenlace que el motor no conto por otra razon (por ejemplo, un
+  // registro anterior a que se guardaran el monto y la contraparte).
+  if (event.countsForScore == false && _outcomeTypes.contains(event.type)) {
+    return ReputationEventText(
+      title: _outcomeTitle(event.type),
+      effect: ScoreEffect.none,
+      effectLabel: 'No cuenta para tu score',
+    );
+  }
   switch (event.type) {
     case 'ON_TIME_PAYMENT':
       return const ReputationEventText(
@@ -80,3 +98,17 @@ ReputationEventText describeReputationEvent(ReputationEvent event) {
     effectLabel: 'No cambia tu score · cuenta para insignias',
   );
 }
+
+const _outcomeTypes = {
+  'ON_TIME_PAYMENT',
+  'PARTIAL_PAYMENT',
+  'LATE_PAYMENT',
+  'OVERDUE_PAYMENT',
+};
+
+String _outcomeTitle(String type) => switch (type) {
+      'PARTIAL_PAYMENT' => 'Pagaste una parte a tiempo',
+      'LATE_PAYMENT' => 'Pagaste despues del plazo',
+      'OVERDUE_PAYMENT' => 'Se vencio un pago sin pagar',
+      _ => 'Pagaste a tiempo',
+    };
